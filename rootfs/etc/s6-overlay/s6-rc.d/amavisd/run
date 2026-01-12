@@ -1,0 +1,14 @@
+#!/command/execlineb -P
+with-contenv
+
+foreground { echo "Starting Amavisd..." }
+
+# Clean stale files (Fix for Issue #6)
+foreground { rm -f /run/amavis/amavisd.pid /run/amavis/amavisd.lock }
+
+# Ensure proper ownership
+foreground { mkdir -p /run/amavis }
+foreground { chown -R amavis:amavis /run/amavis }
+
+# Start amavisd in foreground mode
+/usr/sbin/amavisd foreground

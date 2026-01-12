@@ -1,0 +1,61 @@
+# =============================================================================
+# Fail2ban Jails for iRedMail
+# =============================================================================
+
+[DEFAULT]
+bantime = 3600
+findtime = 600
+maxretry = 5
+# Use DOCKER-USER chain for container traffic
+chain = DOCKER-USER
+ignoreip = 127.0.0.1/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+
+# =============================================================================
+# Postfix SASL Authentication
+# =============================================================================
+[postfix-sasl]
+enabled = true
+filter = postfix-sasl
+action = iptables-multiport[name=postfix-sasl, port="25,465,587", protocol=tcp, chain=DOCKER-USER]
+logpath = /var/log/iredmail/maillog
+maxretry = 3
+
+# =============================================================================
+# Dovecot Authentication
+# =============================================================================
+[dovecot]
+enabled = true
+filter = dovecot
+action = iptables-multiport[name=dovecot, port="110,143,993,995", protocol=tcp, chain=DOCKER-USER]
+logpath = /var/log/iredmail/dovecot.log
+maxretry = 5
+
+# =============================================================================
+# Roundcube Webmail
+# =============================================================================
+[roundcube-auth]
+enabled = true
+filter = roundcube-auth
+action = iptables-multiport[name=roundcube, port="80,443", protocol=tcp, chain=DOCKER-USER]
+logpath = /var/log/iredmail/roundcube/errors.log
+maxretry = 5
+
+# =============================================================================
+# SOGo Groupware
+# =============================================================================
+[sogo-auth]
+enabled = true
+filter = sogo-auth
+action = iptables-multiport[name=sogo, port="80,443", protocol=tcp, chain=DOCKER-USER]
+logpath = /var/log/iredmail/sogo.log
+maxretry = 5
+
+# =============================================================================
+# Nginx HTTP Auth
+# =============================================================================
+[nginx-http-auth]
+enabled = true
+filter = nginx-http-auth
+action = iptables-multiport[name=nginx, port="80,443", protocol=tcp, chain=DOCKER-USER]
+logpath = /var/log/iredmail/nginx-error.log
+maxretry = 5

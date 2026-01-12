@@ -1,0 +1,11 @@
+#!/command/execlineb -P
+with-contenv
+
+foreground { echo "Starting PHP-FPM..." }
+
+# Ensure run directory exists
+foreground { mkdir -p /run/php }
+foreground { chown www-data:www-data /run/php }
+
+# Start php-fpm in foreground
+/usr/sbin/php-fpm8.1 -F

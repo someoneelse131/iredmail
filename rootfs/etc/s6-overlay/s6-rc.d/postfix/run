@@ -1,0 +1,13 @@
+#!/command/execlineb -P
+with-contenv
+
+foreground { echo "Starting Postfix..." }
+
+# Clean stale files
+foreground { rm -f /var/spool/postfix/pid/master.pid }
+
+# Ensure proper ownership
+foreground { postfix set-permissions }
+
+# Start postfix in foreground
+/usr/sbin/postfix start-fg

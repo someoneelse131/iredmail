@@ -1,0 +1,21 @@
+#!/command/execlineb -P
+with-contenv
+
+# Check if ClamAV is disabled
+ifelse { test "${DISABLE_CLAMAV}" = "YES" }
+{
+    foreground { echo "ClamAV disabled, sleeping..." }
+    sleep infinity
+}
+
+foreground { echo "Starting ClamAV daemon..." }
+
+# Ensure proper ownership
+foreground { mkdir -p /run/clamav }
+foreground { chown -R clamav:clamav /run/clamav /var/lib/clamav }
+
+# Clean stale files
+foreground { rm -f /run/clamav/clamd.pid /run/clamav/clamd.ctl }
+
+# Start clamd in foreground
+/usr/sbin/clamd --foreground=true

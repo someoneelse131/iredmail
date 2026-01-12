@@ -1,0 +1,11 @@
+#!/command/execlineb -P
+with-contenv
+
+foreground { echo "Starting SOGo..." }
+
+# Ensure directories exist
+foreground { mkdir -p /run/sogo /var/lib/sogo /var/log/sogo }
+foreground { chown -R sogo:sogo /run/sogo /var/lib/sogo /var/log/sogo }
+
+# Start SOGo
+s6-setuidgid sogo /usr/sbin/sogod -WONoDetach YES -WOLogFile /var/log/sogo/sogo.log

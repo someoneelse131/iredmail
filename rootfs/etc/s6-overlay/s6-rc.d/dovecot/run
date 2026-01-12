@@ -1,0 +1,10 @@
+#!/command/execlineb -P
+with-contenv
+
+foreground { echo "Starting Dovecot..." }
+
+# Clean stale files
+foreground { rm -f /run/dovecot/master.pid }
+
+# Start dovecot in foreground
+/usr/sbin/dovecot -F

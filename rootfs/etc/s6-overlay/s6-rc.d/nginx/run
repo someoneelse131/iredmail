@@ -1,0 +1,10 @@
+#!/command/execlineb -P
+with-contenv
+
+foreground { echo "Starting Nginx..." }
+
+# Test configuration
+foreground { nginx -t }
+
+# Start nginx in foreground
+nginx -g "daemon off;"

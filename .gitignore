@@ -1,0 +1,35 @@
+# Data directories (created at runtime)
+data/
+
+# Environment file with secrets
+.env
+
+# SSL certificates
+*.pem
+*.key
+*.crt
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/
+
+# Logs
+*.log
+
+# Backup files
+*.bak
+*.backup
+
+# Temporary files
+*.tmp
+tmp/
