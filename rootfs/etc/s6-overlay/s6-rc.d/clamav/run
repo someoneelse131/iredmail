@@ -1,21 +1,33 @@
-#!/command/execlineb -P
-with-contenv
+#!/command/with-contenv bash
+set -e
 
 # Check if ClamAV is disabled
-ifelse { test "${DISABLE_CLAMAV}" = "YES" }
-{
-    foreground { echo "ClamAV disabled, sleeping..." }
-    sleep infinity
-}
+if [ "${DISABLE_CLAMAV}" = "YES" ]; then
+    echo "ClamAV disabled, sleeping..."
+    exec sleep infinity
+fi
 
-foreground { echo "Starting ClamAV daemon..." }
+echo "Starting ClamAV daemon..."
 
-# Ensure proper ownership
-foreground { mkdir -p /run/clamav }
-foreground { chown -R clamav:clamav /run/clamav /var/lib/clamav }
+# Create directories and ensure proper ownership
+mkdir -p /run/clamav /var/log/clamav /var/lib/clamav
+chown -R clamav:clamav /run/clamav /var/lib/clamav /var/log/clamav
 
 # Clean stale files
-foreground { rm -f /run/clamav/clamd.pid /run/clamav/clamd.ctl }
+rm -f /run/clamav/clamd.pid /run/clamav/clamd.ctl
 
-# Start clamd in foreground
-/usr/sbin/clamd --foreground=true
+# Wait for any other freshclam process to finish
+while pgrep -x freshclam > /dev/null 2>&1; do
+    echo "Waiting for freshclam to finish..."
+    sleep 2
+done
+
+# Download virus definitions if not present
+if [ ! -f "/var/lib/clamav/main.cvd" ]; then
+    echo "Virus definitions not found, downloading..."
+    su -s /bin/bash -c "freshclam --foreground --stdout" clamav || true
+    echo "Virus definitions downloaded, starting clamd..."
+fi
+
+echo "Starting clamd..."
+exec /usr/sbin/clamd --foreground=true

@@ -1,0 +1,14 @@
+#!/command/execlineb -P
+with-contenv
+
+foreground { echo "Starting iRedAdmin (uWSGI)..." }
+
+# Create runtime directory
+foreground { mkdir -p /run/iredadmin }
+foreground { chown www-data:www-data /run/iredadmin }
+
+# Clean stale socket
+foreground { rm -f /run/iredadmin/iredadmin.sock }
+
+# Start uWSGI for iRedAdmin
+/usr/local/bin/uwsgi --socket /run/iredadmin/iredadmin.sock --chmod-socket=660 --uid www-data --gid www-data --chdir /var/www/iredadmin --wsgi-file /var/www/iredadmin/iredadmin.py --callable application --processes 2 --threads 2 --master --vacuum --die-on-term --need-app --manage-script-name

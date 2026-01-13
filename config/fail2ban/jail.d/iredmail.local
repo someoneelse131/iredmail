@@ -9,6 +9,8 @@ maxretry = 5
 # Use DOCKER-USER chain for container traffic
 chain = DOCKER-USER
 ignoreip = 127.0.0.1/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+# Backend that handles missing log files gracefully
+backend = auto
 
 # =============================================================================
 # Postfix SASL Authentication
@@ -31,30 +33,30 @@ logpath = /var/log/iredmail/dovecot.log
 maxretry = 5
 
 # =============================================================================
-# Roundcube Webmail
+# Roundcube Webmail - Disabled by default (enable after setup)
 # =============================================================================
 [roundcube-auth]
-enabled = true
+enabled = false
 filter = roundcube-auth
 action = iptables-multiport[name=roundcube, port="80,443", protocol=tcp, chain=DOCKER-USER]
 logpath = /var/log/iredmail/roundcube/errors.log
 maxretry = 5
 
 # =============================================================================
-# SOGo Groupware
+# SOGo Groupware - Disabled by default (enable after setup)
 # =============================================================================
 [sogo-auth]
-enabled = true
+enabled = false
 filter = sogo-auth
 action = iptables-multiport[name=sogo, port="80,443", protocol=tcp, chain=DOCKER-USER]
 logpath = /var/log/iredmail/sogo.log
 maxretry = 5
 
 # =============================================================================
-# Nginx HTTP Auth
+# Nginx HTTP Auth - Disabled by default (enable after setup)
 # =============================================================================
 [nginx-http-auth]
-enabled = true
+enabled = false
 filter = nginx-http-auth
 action = iptables-multiport[name=nginx, port="80,443", protocol=tcp, chain=DOCKER-USER]
 logpath = /var/log/iredmail/nginx-error.log

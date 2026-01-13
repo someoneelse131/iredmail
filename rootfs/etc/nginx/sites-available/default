@@ -53,44 +53,63 @@ server {
     # ==========================================================================
     # Roundcube Webmail
     # ==========================================================================
-    location /mail {
-        alias /var/www/roundcube;
+    # Redirect /mail to /mail/
+    location = /mail {
+        return 301 /mail/;
+    }
+
+    location ^~ /mail/ {
+        alias /var/www/roundcube/;
         index index.php;
+        try_files $uri $uri/ /mail/index.php?$args;
 
-        location ~ ^/mail/(.*\.php)$ {
+        location ~ ^/mail/(.+\.php)$ {
             alias /var/www/roundcube/$1;
-            fastcgi_pass unix:/run/php/php-fpm.sock;
-            fastcgi_param SCRIPT_FILENAME $request_filename;
+            fastcgi_pass unix:/run/php/php8.1-fpm.sock;
+            fastcgi_index index.php;
             include fastcgi_params;
-        }
-
-        location ~ ^/mail/(.+\.(jpg|jpeg|gif|css|png|js|ico|html|xml|txt))$ {
-            alias /var/www/roundcube/$1;
+            fastcgi_param SCRIPT_FILENAME /var/www/roundcube/$1;
         }
     }
 
     # ==========================================================================
-    # iRedAdmin
+    # iRedAdmin - Python web.py application via uWSGI
     # ==========================================================================
-    location /iredadmin {
-        alias /var/www/iredadmin;
-        index index.py;
+    # Redirect /iredadmin to /iredadmin/
+    location = /iredadmin {
+        return 301 /iredadmin/;
+    }
 
-        location ~ ^/iredadmin/(.*\.py)$ {
-            include uwsgi_params;
-            uwsgi_pass unix:/run/iredadmin/iredadmin.sock;
-            uwsgi_param UWSGI_CHDIR /var/www/iredadmin;
-            uwsgi_param UWSGI_SCRIPT iredadmin;
-        }
+    # Static files for iRedAdmin
+    location ~ ^/iredadmin/static/(.*) {
+        alias /var/www/iredadmin/static/$1;
+        expires 30d;
+    }
 
-        location ~ ^/iredadmin/(.+\.(jpg|jpeg|gif|css|png|js|ico|html))$ {
-            alias /var/www/iredadmin/static/$1;
-        }
+    # All iRedAdmin requests go through uWSGI
+    location ~ ^/iredadmin(.*) {
+        rewrite ^/iredadmin(/.*)$ $1 break;
+        include uwsgi_params;
+        uwsgi_pass unix:/run/iredadmin/iredadmin.sock;
+        uwsgi_param UWSGI_CHDIR /var/www/iredadmin;
+        uwsgi_param UWSGI_SCRIPT iredadmin;
+        uwsgi_param SCRIPT_NAME /iredadmin;
     }
 
     # ==========================================================================
     # SOGo
     # ==========================================================================
+    # SOGo static resources
+    location ^~ /SOGo.woa/WebServerResources/ {
+        alias /usr/lib/GNUstep/SOGo/WebServerResources/;
+        expires 30d;
+    }
+
+    location ^~ /SOGo/WebServerResources/ {
+        alias /usr/lib/GNUstep/SOGo/WebServerResources/;
+        expires 30d;
+    }
+
     location ^~ /SOGo {
         proxy_pass http://127.0.0.1:20000;
         proxy_redirect http://127.0.0.1:20000 default;
@@ -148,10 +167,10 @@ server {
     }
 
     # ==========================================================================
-    # PHP Processing
+    # PHP Processing (for other PHP files)
     # ==========================================================================
     location ~ \.php$ {
-        fastcgi_pass unix:/run/php/php-fpm.sock;
+        fastcgi_pass unix:/run/php/php8.1-fpm.sock;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
         include fastcgi_params;
     }

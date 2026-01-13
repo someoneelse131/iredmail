@@ -11,4 +11,4 @@ foreground { mkdir -p /run/amavis }
 foreground { chown -R amavis:amavis /run/amavis }
 
 # Start amavisd in foreground mode
-/usr/sbin/amavisd foreground
+/usr/sbin/amavisd-new foreground

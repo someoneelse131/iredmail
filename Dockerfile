@@ -32,6 +32,7 @@ ENV LANG=en_US.UTF-8 \
 # =============================================================================
 # Install s6-overlay
 # =============================================================================
+RUN apt-get update && apt-get install -y --no-install-recommends xz-utils && rm -rf /var/lib/apt/lists/*
 ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz /tmp/
 ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-x86_64.tar.xz /tmp/
 RUN tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz && \
@@ -48,7 +49,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl wget gnupg ca-certificates apt-transport-https \
     software-properties-common lsb-release \
     # Build tools (for some packages)
-    build-essential python3-dev \
+    build-essential python3-dev libldap2-dev libsasl2-dev \
+    default-libmysqlclient-dev pkg-config \
     # Python
     python3 python3-pip python3-setuptools python3-wheel \
     # Network tools
@@ -130,19 +132,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # =============================================================================
-# Install Python Packages
-# =============================================================================
-RUN pip3 install --no-cache-dir \
-    web.py>=0.62 \
-    SQLAlchemy \
-    dnspython \
-    python-ldap \
-    pymysql \
-    uwsgi \
-    more-itertools \
-    requests
-
-# =============================================================================
 # Download and Install Roundcube
 # =============================================================================
 RUN mkdir -p /var/www/roundcube && \
@@ -167,6 +156,27 @@ RUN mkdir -p /var/www/iredadmin && \
     tar -xz -C /var/www/iredadmin --strip-components=1 && \
     chown -R www-data:www-data /var/www/iredadmin && \
     chmod -R 755 /var/www/iredadmin
+
+# =============================================================================
+# Install Python Packages
+# =============================================================================
+# Combined requirements from iRedAPD and iRedAdmin
+# Using psycopg2-binary instead of psycopg2 to avoid needing PostgreSQL dev headers
+RUN pip3 install --no-cache-dir \
+    'web.py>=0.62' \
+    'Jinja2>=2.2.0' \
+    'python-ldap>=3.3.1' \
+    'PyMySQL>=0.9.3' \
+    'mysqlclient' \
+    'psycopg2-binary' \
+    'requests>=2.10.0' \
+    'dnspython' \
+    'netifaces' \
+    'bcrypt' \
+    'simplejson' \
+    'SQLAlchemy>=1.3.16' \
+    'uwsgi' \
+    'more-itertools'
 
 # =============================================================================
 # Create Required Users and Groups

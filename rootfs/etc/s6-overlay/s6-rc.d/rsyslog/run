@@ -1,3 +1,19 @@
 #!/command/execlineb -P
 with-contenv
+
+foreground { echo "Starting rsyslog..." }
+
+# Create Postfix chroot log socket directory
+foreground { mkdir -p /var/spool/postfix/dev }
+
+# Create log directories
+foreground { mkdir -p /var/log /var/spool/rsyslog }
+
+# Create log files if they don't exist
+foreground { touch /var/log/mail.log /var/log/mail.err /var/log/auth.log /var/log/syslog }
+
+# Set permissions
+foreground { chmod 640 /var/log/mail.log /var/log/mail.err /var/log/auth.log /var/log/syslog }
+
+# Start rsyslog in foreground mode
 /usr/sbin/rsyslogd -n

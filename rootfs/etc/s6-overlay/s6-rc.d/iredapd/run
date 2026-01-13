@@ -1,8 +1,17 @@
-#!/command/execlineb -P
-with-contenv
+#!/command/with-contenv bash
 
-foreground { echo "Starting iRedAPD..." }
+echo "Starting iRedAPD..."
 
-# Start iRedAPD
+# Create runtime directory
+mkdir -p /run/iredapd /var/log/iredapd
+chown iredapd:iredapd /run/iredapd /var/log/iredapd 2>/dev/null || true
+
+# Clean stale PID file
+rm -f /run/iredapd/iredapd.pid
+
+# Small delay to allow socket cleanup on restart
+sleep 1
+
+# Start iRedAPD in foreground
 cd /opt/iredapd
-python3 /opt/iredapd/iredapd.py
+exec python3 /opt/iredapd/iredapd.py --foreground

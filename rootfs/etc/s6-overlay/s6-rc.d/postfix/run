@@ -6,8 +6,8 @@ foreground { echo "Starting Postfix..." }
 # Clean stale files
 foreground { rm -f /var/spool/postfix/pid/master.pid }
 
-# Ensure proper ownership
-foreground { postfix set-permissions }
+# Ensure proper ownership (suppress man page errors)
+foreground { redirfd -w 2 /dev/null postfix set-permissions }
 
 # Start postfix in foreground
 /usr/sbin/postfix start-fg

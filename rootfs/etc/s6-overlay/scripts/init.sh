@@ -94,8 +94,10 @@ EOF
         for sql_file in /opt/iredmail/sql/*.sql; do
             if [ -f "$sql_file" ]; then
                 db_name=$(basename "$sql_file" .sql)
-                echo "Importing $sql_file..."
-                mysql -h "${DB_HOST}" -u root -p"${MYSQL_ROOT_PASSWORD}" "$db_name" < "$sql_file" 2>/dev/null || true
+                echo "Importing $sql_file to database $db_name..."
+                if ! mysql -h "${DB_HOST}" -u root -p"${MYSQL_ROOT_PASSWORD}" "$db_name" < "$sql_file"; then
+                    echo "ERROR: Failed to import $sql_file"
+                fi
             fi
         done
     fi
@@ -111,6 +113,7 @@ create_admin_user() {
 
     local domain="${FIRST_MAIL_DOMAIN}"
     local admin_email="postmaster@${domain}"
+    local local_part="postmaster"
 
     # Check if admin already exists
     local exists=$(mysql -h "${DB_HOST}" -u root -p"${MYSQL_ROOT_PASSWORD}" -N -e \
@@ -141,7 +144,7 @@ VALUES ('${domain}', 'dovecot', 1, NOW());
 -- Insert admin mailbox
 INSERT IGNORE INTO mailbox (
     username, password, name, maildir, quota, domain,
-    isadmin, isglobaladmin, active, created
+    local_part, isadmin, isglobaladmin, active, created
 ) VALUES (
     '${admin_email}',
     '${password_hash}',
@@ -149,8 +152,17 @@ INSERT IGNORE INTO mailbox (
     '${domain}/p/o/s/postmaster-${domain}/',
     0,
     '${domain}',
+    '${local_part}',
     1, 1, 1, NOW()
 );
+
+-- Insert admin record (required for iRedAdmin login)
+INSERT IGNORE INTO admin (username, password, name, active, created)
+VALUES ('${admin_email}', '${password_hash}', 'Postmaster', 1, NOW());
+
+-- Link admin to domain
+INSERT IGNORE INTO domain_admins (username, domain, active, created)
+VALUES ('${admin_email}', 'ALL', 1, NOW());
 
 -- Insert alias for postmaster
 INSERT IGNORE INTO alias (address, domain, active, created)
@@ -231,6 +243,13 @@ configure_postfix() {
     postconf -e "virtual_mailbox_maps = proxy:mysql:/etc/postfix/mysql/virtual_mailbox_maps.cf"
     postconf -e "virtual_alias_maps = proxy:mysql:/etc/postfix/mysql/virtual_alias_maps.cf"
 
+    # Virtual transport to Dovecot LMTP
+    postconf -e "virtual_transport = lmtp:unix:private/dovecot-lmtp"
+    postconf -e "virtual_mailbox_base = /var/vmail"
+    postconf -e "virtual_minimum_uid = 2000"
+    postconf -e "virtual_uid_maps = static:2000"
+    postconf -e "virtual_gid_maps = static:2000"
+
     # Message size limit
     postconf -e "message_size_limit = ${MESSAGE_SIZE_LIMIT:-52428800}"
 
@@ -270,6 +289,15 @@ configure_nginx() {
             -subj "/CN=${HOSTNAME}" 2>/dev/null
     fi
 
+    # Replace HOSTNAME placeholder in nginx config
+    if [ -f "/etc/nginx/sites-available/default" ]; then
+        sed -i "s|/etc/letsencrypt/live/HOSTNAME/|/etc/letsencrypt/live/${HOSTNAME}/|g" /etc/nginx/sites-available/default
+    fi
+
+    # Enable the site
+    ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
+    rm -f /etc/nginx/sites-enabled/default.dpkg-dist 2>/dev/null || true
+
     # Apply custom configuration
     if [ -f "/opt/iredmail/custom/nginx/custom.conf" ]; then
         echo "Applying custom Nginx configuration..."
@@ -285,13 +313,12 @@ configure_clamav() {
 
     echo "Configuring ClamAV..."
 
-    # Update virus definitions if not present
-    if [ ! -f "/var/lib/clamav/main.cvd" ]; then
-        echo "Downloading initial ClamAV definitions..."
-        freshclam --quiet || true
-    fi
+    # Create log directory with proper permissions
+    mkdir -p /var/log/clamav /run/clamav /var/lib/clamav
+    chown -R clamav:clamav /var/lib/clamav /var/log/clamav /run/clamav
 
-    chown -R clamav:clamav /var/lib/clamav
+    # Note: Virus definitions will be downloaded by the ClamAV s6 service
+    # We just ensure directories exist with proper permissions here
 }
 
 configure_sogo() {
@@ -306,6 +333,371 @@ configure_sogo() {
         cp /opt/iredmail/custom/sogo/sogo.conf /etc/sogo/sogo.conf
         chown sogo:sogo /etc/sogo/sogo.conf
     fi
+}
+
+# =============================================================================
+# Create Postfix MySQL Lookup Files
+# =============================================================================
+create_postfix_mysql_configs() {
+    echo "Creating Postfix MySQL configuration files..."
+
+    mkdir -p /etc/postfix/mysql
+
+    # Virtual mailbox domains lookup
+    cat > /etc/postfix/mysql/virtual_mailbox_domains.cf << EOF
+user = vmail
+password = ${VMAIL_DB_PASSWORD}
+hosts = ${DB_HOST}
+dbname = vmail
+query = SELECT domain FROM domain WHERE domain='%s' AND active=1
+EOF
+
+    # Virtual mailbox maps lookup
+    cat > /etc/postfix/mysql/virtual_mailbox_maps.cf << EOF
+user = vmail
+password = ${VMAIL_DB_PASSWORD}
+hosts = ${DB_HOST}
+dbname = vmail
+query = SELECT maildir FROM mailbox WHERE username='%s' AND active=1
+EOF
+
+    # Virtual alias maps lookup
+    cat > /etc/postfix/mysql/virtual_alias_maps.cf << EOF
+user = vmail
+password = ${VMAIL_DB_PASSWORD}
+hosts = ${DB_HOST}
+dbname = vmail
+query = SELECT forwarding FROM forwardings WHERE address='%s' AND active=1
+EOF
+
+    # Sender login maps
+    cat > /etc/postfix/mysql/sender_login_maps.cf << EOF
+user = vmail
+password = ${VMAIL_DB_PASSWORD}
+hosts = ${DB_HOST}
+dbname = vmail
+query = SELECT username FROM mailbox WHERE username='%s' AND active=1
+EOF
+
+    chmod 640 /etc/postfix/mysql/*.cf
+    chown root:postfix /etc/postfix/mysql/*.cf
+
+    echo "Postfix MySQL configuration files created."
+}
+
+# =============================================================================
+# Create iRedAPD Settings
+# =============================================================================
+create_iredapd_settings() {
+    echo "Creating iRedAPD settings..."
+
+    local srs_secret=$(openssl rand -hex 16)
+
+    cat > /opt/iredapd/settings.py << EOF
+# iRedAPD settings
+# Auto-generated by init.sh
+
+# Import default settings first
+try:
+    from libs.default_settings import *
+except ImportError:
+    pass
+
+# Listen address and port
+listen_address = '127.0.0.1'
+listen_port = 7777
+srs_forward_port = 7778
+srs_reverse_port = 7779
+
+run_as_user = 'iredapd'
+pid_file = '/run/iredapd/iredapd.pid'
+
+# Logging
+log_level = 'info'
+log_file = '/var/log/iredapd/iredapd.log'
+
+# Backend
+backend = 'mysql'
+
+# Enabled plugins
+plugins = ['reject_null_sender', 'wblist_rdns', 'reject_sender_login_mismatch', 'greylisting', 'throttle', 'amavisd_wblist', 'sql_alias_access_policy']
+
+# SRS (Sender Rewriting Scheme)
+srs_secrets = ['${srs_secret}']
+srs_domain = '${FIRST_MAIL_DOMAIN}'
+
+# vmail database
+vmail_db_server = '${DB_HOST}'
+vmail_db_port = 3306
+vmail_db_name = 'vmail'
+vmail_db_user = 'vmail'
+vmail_db_password = '${VMAIL_DB_PASSWORD}'
+
+# Amavisd database
+amavisd_db_server = '${DB_HOST}'
+amavisd_db_port = 3306
+amavisd_db_name = 'amavisd'
+amavisd_db_user = 'amavisd'
+amavisd_db_password = '${AMAVISD_DB_PASSWORD}'
+
+# iRedAPD database
+iredapd_db_server = '${DB_HOST}'
+iredapd_db_port = 3306
+iredapd_db_name = 'iredapd'
+iredapd_db_user = 'iredapd'
+iredapd_db_password = '${IREDAPD_DB_PASSWORD}'
+EOF
+
+    # Create iredapd user if not exists
+    id -u iredapd &>/dev/null || useradd -r -s /sbin/nologin iredapd
+
+    # Create runtime and log directories
+    mkdir -p /run/iredapd /var/log/iredapd
+    chown iredapd:iredapd /run/iredapd /var/log/iredapd
+    chown iredapd:iredapd /opt/iredapd/settings.py
+    chmod 600 /opt/iredapd/settings.py
+
+    # Create /etc/mailname
+    echo "${HOSTNAME}" > /etc/mailname
+
+    echo "iRedAPD settings created."
+}
+
+# =============================================================================
+# Create iRedAdmin Settings
+# =============================================================================
+create_iredadmin_settings() {
+    echo "Creating iRedAdmin settings..."
+
+    cat > /var/www/iredadmin/settings.py << EOF
+# iRedAdmin settings
+# Auto-generated by init.sh
+
+# Import default settings first (provides MAILDIR_HASHED, etc.)
+from libs.default_settings import *
+
+# General settings
+webmaster = 'postmaster@${FIRST_MAIL_DOMAIN}'
+default_language = 'en_US'
+
+# Backend type
+backend = 'mysql'
+
+# Database settings (vmail - mail accounts)
+vmail_db_host = '${DB_HOST}'
+vmail_db_port = 3306
+vmail_db_name = 'vmail'
+vmail_db_user = 'vmailadmin'
+vmail_db_password = '${VMAIL_DB_ADMIN_PASSWORD}'
+
+# Database settings (iredadmin)
+iredadmin_db_host = '${DB_HOST}'
+iredadmin_db_port = 3306
+iredadmin_db_name = 'iredadmin'
+iredadmin_db_user = 'iredadmin'
+iredadmin_db_password = '${IREDADMIN_DB_PASSWORD}'
+
+# Amavisd database (for spam/virus stats)
+amavisd_db_host = '${DB_HOST}'
+amavisd_db_port = 3306
+amavisd_db_name = 'amavisd'
+amavisd_db_user = 'amavisd'
+amavisd_db_password = '${AMAVISD_DB_PASSWORD}'
+amavisd_enable_logging = True
+amavisd_enable_quarantine = True
+amavisd_quarantine_port = 9998
+amavisd_enable_policy_lookup = True
+
+# iRedAPD database
+iredapd_enabled = True
+iredapd_db_host = '${DB_HOST}'
+iredapd_db_port = 3306
+iredapd_db_name = 'iredapd'
+iredapd_db_user = 'iredapd'
+iredapd_db_password = '${IREDAPD_DB_PASSWORD}'
+
+# Mail storage
+storage_base_directory = '/var/vmail/vmail1'
+default_mta_transport = 'dovecot'
+
+# Password settings
+min_passwd_length = 8
+max_passwd_length = 0
+
+# DKIM
+amavisd_dkim_key_dir = '/var/lib/dkim'
+EOF
+
+    chown www-data:www-data /var/www/iredadmin/settings.py
+    chmod 600 /var/www/iredadmin/settings.py
+
+    echo "iRedAdmin settings created."
+}
+
+# =============================================================================
+# Create Roundcube Configuration
+# =============================================================================
+create_roundcube_config() {
+    echo "Creating Roundcube configuration..."
+
+    cat > /var/www/roundcube/config/config.inc.php << EOF
+<?php
+// Roundcube configuration
+// Auto-generated by init.sh
+
+// Database connection
+\$config['db_dsnw'] = 'mysql://roundcube:${ROUNDCUBE_DB_PASSWORD}@${DB_HOST}/roundcubemail';
+
+// Default host for IMAP connection
+\$config['imap_host'] = 'localhost:143';
+
+// SMTP server
+\$config['smtp_host'] = 'localhost:587';
+\$config['smtp_user'] = '%u';
+\$config['smtp_pass'] = '%p';
+
+// Encryption key (for session cookies)
+\$config['des_key'] = '${ROUNDCUBE_DES_KEY:-$(openssl rand -base64 24 | head -c 24)}';
+
+// Name of the product
+\$config['product_name'] = 'Webmail';
+
+// Default skin
+\$config['skin'] = 'elastic';
+
+// Logging
+\$config['log_driver'] = 'file';
+\$config['log_dir'] = '/var/log/roundcube/';
+
+// Temp directory
+\$config['temp_dir'] = '/tmp/roundcube';
+
+// Message size limit
+\$config['max_message_size'] = '50M';
+
+// Default charset
+\$config['default_charset'] = 'UTF-8';
+
+// Plugins
+\$config['plugins'] = array(
+    'archive',
+    'zipdownload',
+    'managesieve',
+);
+
+// ManageSieve settings
+\$config['managesieve_port'] = 4190;
+\$config['managesieve_host'] = 'localhost';
+\$config['managesieve_auth_type'] = 'PLAIN';
+
+// Auto-create addressbook
+\$config['autocomplete_addressbooks'] = array('sql', 'collected_addresses');
+
+// Session settings
+\$config['session_lifetime'] = 10;
+\$config['session_domain'] = '';
+
+// User preferences
+\$config['preview_pane'] = true;
+\$config['list_cols'] = array('subject', 'from', 'date', 'size', 'flag', 'attachment');
+
+// Include custom settings if exists
+if (file_exists('/opt/iredmail/custom/roundcube/config.inc.php')) {
+    include '/opt/iredmail/custom/roundcube/config.inc.php';
+}
+EOF
+
+    # Create required directories
+    mkdir -p /var/log/roundcube /tmp/roundcube
+    chown -R www-data:www-data /var/www/roundcube/config /var/log/roundcube /tmp/roundcube
+    chmod 600 /var/www/roundcube/config/config.inc.php
+
+    echo "Roundcube configuration created."
+}
+
+# =============================================================================
+# Create SOGo Configuration
+# =============================================================================
+create_sogo_config() {
+    echo "Creating SOGo configuration..."
+
+    cat > /etc/sogo/sogo.conf << EOF
+{
+    // SOGo configuration
+    // Auto-generated by init.sh
+
+    // General settings
+    SOGoTimeZone = "${TZ:-UTC}";
+    SOGoPageTitle = "SOGo";
+    SOGoLanguage = English;
+    SOGoAppointmentSendEMailNotifications = YES;
+    WOWorkersCount = ${SOGO_WORKERS:-3};
+
+    // User sources (MySQL auth via vmail database)
+    SOGoUserSources = (
+        {
+            type = sql;
+            id = vmail;
+            viewURL = "mysql://vmail:${VMAIL_DB_PASSWORD}@${DB_HOST}:3306/vmail/mailbox";
+            canAuthenticate = YES;
+            isAddressBook = NO;
+            userPasswordAlgorithm = ssha512;
+
+            // Field mapping
+            LoginFieldNames = (username);
+            MailFieldNames = (username);
+            UIDFieldName = username;
+            CNFieldName = name;
+        }
+    );
+
+    // Database
+    SOGoProfileURL = "mysql://sogo:${SOGO_DB_PASSWORD}@${DB_HOST}:3306/sogo/sogo_user_profile";
+    OCSFolderInfoURL = "mysql://sogo:${SOGO_DB_PASSWORD}@${DB_HOST}:3306/sogo/sogo_folder_info";
+    OCSSessionsFolderURL = "mysql://sogo:${SOGO_DB_PASSWORD}@${DB_HOST}:3306/sogo/sogo_sessions_folder";
+    OCSEMailAlarmsFolderURL = "mysql://sogo:${SOGO_DB_PASSWORD}@${DB_HOST}:3306/sogo/sogo_alarms_folder";
+    OCSStoreURL = "mysql://sogo:${SOGO_DB_PASSWORD}@${DB_HOST}:3306/sogo/sogo_store";
+    OCSAclURL = "mysql://sogo:${SOGO_DB_PASSWORD}@${DB_HOST}:3306/sogo/sogo_acl";
+    OCSCacheFolderURL = "mysql://sogo:${SOGO_DB_PASSWORD}@${DB_HOST}:3306/sogo/sogo_cache_folder";
+
+    // IMAP settings
+    SOGoIMAPServer = "imap://localhost:143";
+    SOGoSieveServer = "sieve://localhost:4190";
+
+    // SMTP settings
+    SOGoSMTPServer = "smtp://localhost:587";
+    SOGoMailingMechanism = smtp;
+    SOGoSMTPAuthenticationType = PLAIN;
+
+    // Web UI settings
+    SOGoMailDomain = "${FIRST_MAIL_DOMAIN}";
+    SOGoFirstDayOfWeek = 1;
+    SOGoDraftsFolderName = Drafts;
+    SOGoSentFolderName = Sent;
+    SOGoTrashFolderName = Trash;
+    SOGoJunkFolderName = Junk;
+
+    // ActiveSync
+    SOGoMaximumPingInterval = 3540;
+    SOGoMaximumSyncInterval = 3540;
+    SOGoInternalSyncInterval = 30;
+
+    // Caching
+    SOGoCacheCleanupInterval = 300;
+    SOGoMaximumFailedLoginCount = 5;
+    SOGoMaximumFailedLoginInterval = 300;
+
+    // Debug (set to YES for troubleshooting)
+    // SOGoDebugRequests = YES;
+    // SoDebugBaseURL = YES;
+    // ImapDebugEnabled = YES;
+}
+EOF
+
+    chown sogo:sogo /etc/sogo/sogo.conf
+    chmod 600 /etc/sogo/sogo.conf
+
+    echo "SOGo configuration created."
 }
 
 # =============================================================================
@@ -336,6 +728,11 @@ main() {
     # Check if already initialized
     if [ -f "$STATE_FILE" ]; then
         echo "Container already initialized, running configuration updates only..."
+        create_postfix_mysql_configs
+        create_iredapd_settings
+        create_iredadmin_settings
+        create_roundcube_config
+        create_sogo_config
         configure_postfix
         configure_dovecot
         configure_nginx
@@ -355,6 +752,13 @@ main() {
 
     # Generate DKIM
     generate_dkim
+
+    # Create config files
+    create_postfix_mysql_configs
+    create_iredapd_settings
+    create_iredadmin_settings
+    create_roundcube_config
+    create_sogo_config
 
     # Configure services
     configure_postfix
