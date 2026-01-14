@@ -506,6 +506,7 @@ from libs.default_settings import *
 
 # General settings
 webmaster = 'postmaster@${FIRST_MAIL_DOMAIN}'
+first_mail_domain = '${FIRST_MAIL_DOMAIN}'
 default_language = 'en_US'
 
 # Backend type
@@ -545,7 +546,8 @@ iredapd_db_user = 'iredapd'
 iredapd_db_password = '${IREDAPD_DB_PASSWORD}'
 
 # Mail storage
-storage_base_directory = '/var/vmail/vmail1'
+storage_base_directory = '/var/vmail'
+storage_node = 'vmail1'
 default_mta_transport = 'dovecot'
 
 # Password settings
