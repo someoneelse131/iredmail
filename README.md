@@ -70,7 +70,7 @@ cd iredmail-docker
 ./setup.sh
 ```
 
-The setup script creates necessary directories and copies the example environment file.
+The setup script creates necessary directories, copies the example environment file, and optionally configures UFW firewall rules.
 
 ### 2. Configure Environment
 
@@ -186,6 +186,7 @@ iredmail-docker/
 ├── scripts/
 │   ├── obtain-cert.sh          # SSL certificate management
 │   ├── add-domain.sh           # Add mail domains
+│   ├── setup-firewall.sh       # UFW firewall configuration
 │   ├── backup.sh               # Backup utility
 │   └── restore.sh              # Restore utility
 ├── sql/                        # Database schemas
@@ -387,6 +388,7 @@ dig TXT _dmarc.example.com +short
 | High spam score | Configure SPF, DKIM, DMARC, PTR |
 | Blacklisted IP | Check at [MXToolbox](https://mxtoolbox.com/blacklists.aspx) |
 | ClamAV using high memory | Normal - needs ~1-2GB for virus definitions |
+| VPS blocks outbound port 25 | Contact your VPS provider to unblock (common with IONOS, AWS, etc.) |
 
 ## Updating
 
@@ -402,7 +404,7 @@ docker compose up -d
 ## Security Recommendations
 
 1. **Strong Passwords**: Use unique, random passwords for all accounts
-2. **Firewall**: Restrict access to necessary ports only
+2. **Firewall**: Run `sudo ./scripts/setup-firewall.sh` to configure UFW with all required ports
 3. **Updates**: Regularly rebuild to get security updates
 4. **Monitoring**: Check Fail2ban logs for intrusion attempts
 5. **Backups**: Schedule regular backups to external storage

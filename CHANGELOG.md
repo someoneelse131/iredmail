@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.1.0] - 2026-01-14
+
+### Added
+- UFW firewall setup script (`scripts/setup-firewall.sh`)
+- Automatic firewall configuration in setup.sh
+- SOGo users SQL view for proper authentication
+- Session documentation in `.claude/SESSION_NOTES.md`
+
+### Fixed
+- Dovecot SQL authentication (was using system auth instead of SQL)
+- Dovecot auth socket for Postfix SASL authentication
+- Postfix submission (587) and smtps (465) ports not enabled
+- Postfix DNS resolution in chroot environment
+- Roundcube addressbook error (collected_addresses not found)
+- Roundcube SMTP connection (changed from port 587 to 25 for local delivery)
+- SOGo authentication (SQL view mapping mailbox columns to expected c_* columns)
+- SOGo SMTP port configuration
+
+### Changed
+- SOGo now uses `sogo_users` view instead of direct mailbox table access
+- Removed incomplete custom sogo.conf that was overwriting generated config
+
 ## [1.0.0] - 2026-01-14
 
 ### Added
