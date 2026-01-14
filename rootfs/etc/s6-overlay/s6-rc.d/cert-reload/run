@@ -1,0 +1,6 @@
+#!/command/execlineb -P
+with-contenv
+
+foreground { echo "Starting certificate reload watcher..." }
+
+/etc/s6-overlay/scripts/cert-reload.sh
