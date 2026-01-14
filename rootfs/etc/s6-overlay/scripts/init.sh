@@ -102,6 +102,19 @@ EOF
         done
     fi
 
+    # Create SOGo users view (maps mailbox columns to SOGo expected c_* columns)
+    echo "Creating SOGo users view..."
+    mysql -h "${DB_HOST}" -u root -p"${MYSQL_ROOT_PASSWORD}" vmail << 'EOF'
+CREATE OR REPLACE VIEW sogo_users AS
+SELECT
+    username AS c_uid,
+    username AS c_name,
+    password AS c_password,
+    name AS c_cn,
+    username AS mail
+FROM mailbox WHERE active = 1;
+EOF
+
     echo "Database initialization complete!"
 }
 
@@ -760,16 +773,16 @@ create_sogo_config() {
         {
             type = sql;
             id = vmail;
-            viewURL = "mysql://vmail:${VMAIL_DB_PASSWORD}@${DB_HOST}:3306/vmail/mailbox";
+            viewURL = "mysql://vmail:${VMAIL_DB_PASSWORD}@${DB_HOST}:3306/vmail/sogo_users";
             canAuthenticate = YES;
             isAddressBook = NO;
             userPasswordAlgorithm = ssha512;
 
-            // Field mapping
-            LoginFieldNames = (username);
-            MailFieldNames = (username);
-            UIDFieldName = username;
-            CNFieldName = name;
+            // Field mapping for sogo_users view (c_* columns)
+            LoginFieldNames = (c_uid);
+            MailFieldNames = (mail);
+            UIDFieldName = c_uid;
+            CNFieldName = c_cn;
         }
     );
 
@@ -786,8 +799,8 @@ create_sogo_config() {
     SOGoIMAPServer = "imap://localhost:143";
     SOGoSieveServer = "sieve://localhost:4190";
 
-    // SMTP settings
-    SOGoSMTPServer = "smtp://localhost:587";
+    // SMTP settings (use port 25 for local delivery)
+    SOGoSMTPServer = "smtp://localhost:25";
     SOGoMailingMechanism = smtp;
     SOGoSMTPAuthenticationType = PLAIN;
 
