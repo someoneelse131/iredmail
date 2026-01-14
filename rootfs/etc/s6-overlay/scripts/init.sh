@@ -184,11 +184,8 @@ INSERT IGNORE INTO mailbox (
     1, NOW(), NOW()
 );
 
--- Insert admin record (required for iRedAdmin login)
-INSERT IGNORE INTO admin (username, password, name, language, active, created, modified)
-VALUES ('${admin_email}', '${password_hash}', 'Postmaster', 'en_US', 1, NOW(), NOW());
-
--- Link admin to domain (ALL means global admin)
+-- Link global admin to domain_admins (required for iRedAdmin permissions)
+-- Note: Authentication uses mailbox table with isglobaladmin=1
 INSERT IGNORE INTO domain_admins (username, domain, active, created)
 VALUES ('${admin_email}', 'ALL', 1, NOW());
 
@@ -199,6 +196,9 @@ VALUES ('${admin_email}', 'Postmaster', '${domain}', 1, NOW(), NOW());
 -- Insert forwardings
 INSERT IGNORE INTO forwardings (address, forwarding, domain, dest_domain, is_mailbox, active)
 VALUES ('${admin_email}', '${admin_email}', '${domain}', '${domain}', 1, 1);
+
+-- Update domain counter
+UPDATE domain SET mailboxes = mailboxes + 1 WHERE domain = '${domain}';
 EOF
 
     echo "Admin user created: ${admin_email}"
