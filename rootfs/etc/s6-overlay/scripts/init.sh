@@ -113,7 +113,6 @@ create_admin_user() {
 
     local domain="${FIRST_MAIL_DOMAIN}"
     local admin_email="postmaster@${domain}"
-    local local_part="postmaster"
 
     # Check if admin already exists
     local exists=$(mysql -h "${DB_HOST}" -u root -p"${MYSQL_ROOT_PASSWORD}" -N -e \
@@ -138,39 +137,68 @@ print('{SSHA512}' + base64.b64encode(h + salt).decode())
     echo "Creating domain: ${domain}"
     mysql -h "${DB_HOST}" -u root -p"${MYSQL_ROOT_PASSWORD}" vmail << EOF
 -- Insert domain
-INSERT IGNORE INTO domain (domain, transport, active, created)
-VALUES ('${domain}', 'dovecot', 1, NOW());
+INSERT IGNORE INTO domain (domain, description, transport, active, created, modified)
+VALUES ('${domain}', 'Primary mail domain', 'dovecot', 1, NOW(), NOW());
 
--- Insert admin mailbox
+-- Insert admin mailbox (iRedMail 1.7.x compatible schema)
+-- Note: Columns with special chars use defaults, no need to specify
 INSERT IGNORE INTO mailbox (
-    username, password, name, maildir, quota, domain,
-    local_part, isadmin, isglobaladmin, active, created
+    username, password, name, language,
+    mailboxformat, mailboxfolder,
+    storagebasedirectory, storagenode, maildir,
+    quota, domain, transport,
+    isadmin, isglobaladmin,
+    enablesmtp, enablesmtpsecured,
+    enablepop3, enablepop3secured, enablepop3tls,
+    enableimap, enableimapsecured, enableimaptls,
+    enabledeliver, enablelda,
+    enablemanagesieve, enablemanagesievesecured,
+    enablesieve, enablesievesecured, enablesievetls,
+    enableinternal, enabledoveadm,
+    enablelmtp, enabledsync, enablesogo,
+    enablesogowebmail, enablesogocalendar, enablesogoactivesync,
+    active, created, modified
 ) VALUES (
     '${admin_email}',
     '${password_hash}',
     'Postmaster',
+    'en_US',
+    'maildir',
+    'Maildir',
+    '/var/vmail',
+    'vmail1',
     '${domain}/p/o/s/postmaster-${domain}/',
     0,
     '${domain}',
-    '${local_part}',
-    1, 1, 1, NOW()
+    '',
+    1, 1,
+    1, 1,
+    1, 1, 1,
+    1, 1, 1,
+    1, 1,
+    1, 1,
+    1, 1, 1,
+    1, 1,
+    1, 1, 1,
+    'y', 'y', 'y',
+    1, NOW(), NOW()
 );
 
 -- Insert admin record (required for iRedAdmin login)
-INSERT IGNORE INTO admin (username, password, name, active, created)
-VALUES ('${admin_email}', '${password_hash}', 'Postmaster', 1, NOW());
+INSERT IGNORE INTO admin (username, password, name, language, active, created, modified)
+VALUES ('${admin_email}', '${password_hash}', 'Postmaster', 'en_US', 1, NOW(), NOW());
 
--- Link admin to domain
+-- Link admin to domain (ALL means global admin)
 INSERT IGNORE INTO domain_admins (username, domain, active, created)
 VALUES ('${admin_email}', 'ALL', 1, NOW());
 
 -- Insert alias for postmaster
-INSERT IGNORE INTO alias (address, domain, active, created)
-VALUES ('${admin_email}', '${domain}', 1, NOW());
+INSERT IGNORE INTO alias (address, name, domain, active, created, modified)
+VALUES ('${admin_email}', 'Postmaster', '${domain}', 1, NOW(), NOW());
 
 -- Insert forwardings
-INSERT IGNORE INTO forwardings (address, forwarding, domain, is_mailbox, active)
-VALUES ('${admin_email}', '${admin_email}', '${domain}', 1, 1);
+INSERT IGNORE INTO forwardings (address, forwarding, domain, dest_domain, is_mailbox, active)
+VALUES ('${admin_email}', '${admin_email}', '${domain}', '${domain}', 1, 1);
 EOF
 
     echo "Admin user created: ${admin_email}"
@@ -719,6 +747,19 @@ setup_logging() {
 }
 
 # =============================================================================
+# Create iRedMail Release File
+# =============================================================================
+create_iredmail_release() {
+    echo "Creating iRedMail release file..."
+
+    cat > /etc/iredmail-release << EOF
+1.7.0 MYSQL
+EOF
+
+    echo "iRedMail release file created."
+}
+
+# =============================================================================
 # Main Initialization
 # =============================================================================
 main() {
@@ -737,6 +778,7 @@ main() {
         configure_dovecot
         configure_nginx
         configure_sogo
+        create_iredmail_release
         echo "Configuration updates complete!"
         exit 0
     fi
@@ -769,6 +811,9 @@ main() {
 
     # Setup logging
     setup_logging
+
+    # Create iredmail-release file for version display
+    create_iredmail_release
 
     # Mark as initialized
     mkdir -p "$STATE_DIR"

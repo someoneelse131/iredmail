@@ -1,6 +1,6 @@
 -- =============================================================================
 -- iRedAdmin Database Schema
--- Stores admin panel session data and logs
+-- Stores admin panel session data, logs, and deleted mailbox tracking
 -- =============================================================================
 
 -- Session storage
@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS deleted_mailboxes (
     domain VARCHAR(255) NOT NULL DEFAULT '',
     maildir VARCHAR(255) NOT NULL DEFAULT '',
     admin VARCHAR(255) NOT NULL DEFAULT '',
+    bytes BIGINT(20) NOT NULL DEFAULT 0,
+    messages BIGINT(20) NOT NULL DEFAULT 0,
     INDEX (timestamp),
     INDEX (username),
     INDEX (domain),
