@@ -136,9 +136,9 @@ print('{SSHA512}' + base64.b64encode(h + salt).decode())
 
     echo "Creating domain: ${domain}"
     mysql -h "${DB_HOST}" -u root -p"${MYSQL_ROOT_PASSWORD}" vmail << EOF
--- Insert domain
-INSERT IGNORE INTO domain (domain, description, transport, active, created, modified)
-VALUES ('${domain}', 'Primary mail domain', 'dovecot', 1, NOW(), NOW());
+-- Insert domain with unlimited accounts (0 = unlimited in iRedAdmin)
+INSERT IGNORE INTO domain (domain, description, aliases, mailboxes, maillists, maxquota, quota, transport, active, created, modified)
+VALUES ('${domain}', 'Primary mail domain', 0, 0, 0, 0, 0, 'dovecot', 1, NOW(), NOW());
 
 -- Insert admin mailbox (iRedMail 1.7.x compatible schema)
 -- Note: Columns with special chars use defaults, no need to specify
@@ -196,9 +196,6 @@ VALUES ('${admin_email}', 'Postmaster', '${domain}', 1, NOW(), NOW());
 -- Insert forwardings
 INSERT IGNORE INTO forwardings (address, forwarding, domain, dest_domain, is_mailbox, active)
 VALUES ('${admin_email}', '${admin_email}', '${domain}', '${domain}', 1, 1);
-
--- Update domain counter
-UPDATE domain SET mailboxes = mailboxes + 1 WHERE domain = '${domain}';
 EOF
 
     echo "Admin user created: ${admin_email}"
