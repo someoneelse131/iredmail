@@ -243,6 +243,10 @@ generate_dkim() {
 configure_postfix() {
     echo "Configuring Postfix..."
 
+    # Setup Postfix chroot DNS resolution
+    mkdir -p /var/spool/postfix/etc
+    cp /etc/resolv.conf /var/spool/postfix/etc/resolv.conf
+
     # Set hostname
     postconf -e "myhostname = ${HOSTNAME}"
     postconf -e "mydomain = ${FIRST_MAIL_DOMAIN}"

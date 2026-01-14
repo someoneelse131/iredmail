@@ -59,6 +59,21 @@ fi
 # Make scripts executable
 chmod +x "${SCRIPT_DIR}/scripts/"*.sh
 
+# Setup firewall rules
+echo ""
+echo "Checking firewall configuration..."
+if [ "$EUID" -eq 0 ]; then
+    "${SCRIPT_DIR}/scripts/setup-firewall.sh"
+else
+    echo "Run firewall setup with sudo:"
+    echo "  sudo ${SCRIPT_DIR}/scripts/setup-firewall.sh"
+    echo ""
+    read -p "Run firewall setup now? (requires sudo) [y/N]: " run_fw
+    if [[ "$run_fw" =~ ^[Yy]$ ]]; then
+        sudo "${SCRIPT_DIR}/scripts/setup-firewall.sh"
+    fi
+fi
+
 echo ""
 echo "=============================================="
 echo "Setup Complete!"
