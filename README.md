@@ -426,6 +426,41 @@ docker compose up -d
 | Fail2ban | 1.1.0 |
 | Certbot | 4.0.0 |
 
+## Version Pinning & Stability
+
+This project pins **all dependencies to exact versions** to ensure long-term stability and reproducible builds. This means:
+
+- Your mail server won't break from unexpected upstream changes
+- Builds are reproducible months or years later
+- Security updates are intentional, not automatic
+
+### What's Pinned
+
+| Category | Examples | Location |
+|----------|----------|----------|
+| Docker images | MariaDB, Fail2ban, Certbot | `docker-compose.yml` |
+| Build components | s6-overlay, Roundcube, iRedAPD, iRedAdmin | `Dockerfile` ARGs |
+| Python packages | Jinja2, SQLAlchemy, bcrypt, dnspython, etc. | `Dockerfile` pip install |
+| Base image | Ubuntu 22.04 LTS | `Dockerfile` FROM |
+
+### Updating Dependencies
+
+To update to newer versions:
+
+1. Check the [CHANGELOG.md](CHANGELOG.md) for the current versions
+2. Update the version numbers in `Dockerfile` and `docker-compose.yml`
+3. Test thoroughly before deploying to production
+4. Rebuild with `docker compose build --no-cache`
+
+### Recommended Update Schedule
+
+| Component | Frequency | Why |
+|-----------|-----------|-----|
+| Roundcube | Monthly | Security patches |
+| Fail2ban/Certbot | Quarterly | Stability |
+| Python packages | Quarterly | Security + compatibility |
+| Ubuntu base | LTS cycle (2-4 years) | Major changes |
+
 ## License
 
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
