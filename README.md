@@ -296,7 +296,7 @@ All data is stored in the `./data/` directory:
 | `data/ssl/` | SSL certificates |
 | `data/clamav/` | Virus definitions |
 | `data/sogo/` | SOGo cache |
-| `data/logs/` | Service logs |
+| `data/logs/` | Service logs (shared with fail2ban) |
 
 ## Backup & Restore
 
@@ -339,7 +339,7 @@ docker compose logs -f
 docker compose logs -f iredmail
 
 # Mail log inside container
-docker exec iredmail-core tail -f /var/log/mail.log
+docker exec iredmail-core tail -f /var/log/iredmail/maillog
 ```
 
 ### Check Service Status

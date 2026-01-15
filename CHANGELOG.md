@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.1.1] - 2026-01-15
+
+### Fixed
+- Fail2ban container restart loop due to missing/inaccessible log files
+- All services now log directly to `/var/log/iredmail/` (shared volume)
+- rsyslog writes mail logs to shared directory
+- Dovecot, Nginx, Roundcube, and SOGo log paths updated for fail2ban integration
+
+### Changed
+- `setup_logging()` now runs on every container startup, not just first initialization
+- Removed broken symlinks in favor of direct log file paths
+
 ## [1.1.0] - 2026-01-14
 
 ### Added

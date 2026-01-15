@@ -2,6 +2,24 @@
 
 ## Issues Fixed
 
+### 7. Fail2ban Container Restart Loop
+**Problem:** Fail2ban container kept restarting in a loop.
+
+**Root Cause:**
+- Services logged to `/var/log/mail.log`, `/var/log/dovecot.log`, etc.
+- `setup_logging()` created symlinks in `/var/log/iredmail/` pointing to those files
+- The bind mount `./data/logs:/var/log/iredmail` shared only the symlinks with fail2ban
+- Fail2ban couldn't follow symlinks to files outside its container
+
+**Fix:**
+- Configure rsyslog to write directly to `/var/log/iredmail/maillog`
+- Configure Dovecot to log to `/var/log/iredmail/dovecot.log`
+- Configure Nginx error log to `/var/log/iredmail/nginx-error.log`
+- Configure Roundcube to log to `/var/log/iredmail/roundcube/`
+- Configure SOGo to log to `/var/log/iredmail/sogo.log`
+- Update `setup_logging()` to create actual files, not symlinks
+- Run `setup_logging()` on every startup (not just first init)
+
 ### 1. Dovecot SQL Authentication
 **Problem:** Webmail login failed - Dovecot couldn't authenticate users.
 
@@ -76,7 +94,21 @@ German notice from IONOS:
 ### `rootfs/etc/s6-overlay/scripts/init.sh`
 - `configure_dovecot()`: Added SQL config, auth socket, auth-sql enablement
 - `configure_postfix()`: Added DNS chroot fix, submission/smtps ports
-- `create_roundcube_config()`: Fixed SMTP port and addressbook
+- `create_roundcube_config()`: Fixed SMTP port, addressbook, log directory
+- `create_sogo_config()`: Added WOLogFile for fail2ban integration
+- `setup_logging()`: Changed from symlinks to direct file creation, runs every startup
+
+### `rootfs/etc/rsyslog.d/50-iredmail.conf`
+- Mail logs now write to `/var/log/iredmail/maillog`
+
+### `rootfs/etc/nginx/sites-available/default`
+- Error log changed to `/var/log/iredmail/nginx-error.log`
+
+### `rootfs/etc/s6-overlay/s6-rc.d/sogo/run`
+- Log file path updated to `/var/log/iredmail/sogo.log`
+
+### `config/dovecot/custom.conf`
+- Added logging configuration for fail2ban integration
 
 ### `setup.sh`
 - Added firewall setup prompt
