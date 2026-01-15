@@ -23,6 +23,9 @@ long_query_time = 2
 max_allowed_packet = 64M
 innodb_flush_log_at_trx_commit = 1
 
+# Suppress "Aborted connection" warnings (harmless, caused by short-lived connections)
+log_warnings = 1
+
 [client]
 default-character-set = utf8mb4
 
