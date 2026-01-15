@@ -3,8 +3,6 @@
 # Add New Mail Domain
 # =============================================================================
 
-set -e
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
@@ -20,61 +18,138 @@ if [ -f "${PROJECT_DIR}/.env" ]; then
     source "${PROJECT_DIR}/.env"
 fi
 
-echo "=============================================="
-echo "Adding New Mail Domain"
-echo "=============================================="
-echo "Domain: $NEW_DOMAIN"
+# =============================================================================
+# Confirmation prompt
+# =============================================================================
 echo ""
+echo "=============================================="
+echo "Add Mail Domain"
+echo "=============================================="
+echo ""
+echo "You are about to add: ${NEW_DOMAIN}"
+echo ""
+read -p "Is this correct? (y/n): " CONFIRM
 
-# Add domain to database
-echo "Adding domain to database..."
-docker exec iredmail-db mysql -u root -p"${MYSQL_ROOT_PASSWORD}" vmail << EOF
-INSERT IGNORE INTO domain (domain, transport, active, created)
-VALUES ('${NEW_DOMAIN}', 'dovecot', 1, NOW());
-EOF
-echo "Domain added to database."
+if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+    echo "Aborted."
+    exit 0
+fi
 
+# =============================================================================
+# Check if domain already exists
+# =============================================================================
+echo ""
+echo "Checking if domain exists..."
+
+DOMAIN_EXISTS=$(docker exec iredmail-db mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -N -e \
+    "SELECT COUNT(*) FROM vmail.domain WHERE domain='${NEW_DOMAIN}';" 2>/dev/null)
+
+if [ "$DOMAIN_EXISTS" == "1" ]; then
+    echo "Domain '${NEW_DOMAIN}' already exists in database."
+    ALREADY_EXISTS=true
+else
+    ALREADY_EXISTS=false
+
+    # Add domain to database
+    echo "Adding domain to database..."
+    docker exec iredmail-db mysql -u root -p"${MYSQL_ROOT_PASSWORD}" vmail -e \
+        "INSERT INTO domain (domain, transport, active, created) VALUES ('${NEW_DOMAIN}', 'dovecot', 1, NOW());" 2>/dev/null
+
+    # Verify it was added
+    VERIFY=$(docker exec iredmail-db mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -N -e \
+        "SELECT COUNT(*) FROM vmail.domain WHERE domain='${NEW_DOMAIN}';" 2>/dev/null)
+
+    if [ "$VERIFY" == "1" ]; then
+        echo "Domain added successfully."
+    else
+        echo "ERROR: Failed to add domain to database!"
+        exit 1
+    fi
+fi
+
+# =============================================================================
 # Generate DKIM key
+# =============================================================================
 echo ""
-echo "Generating DKIM key..."
-DKIM_KEY_FILE="${PROJECT_DIR}/data/dkim/${NEW_DOMAIN}.pem"
-mkdir -p "${PROJECT_DIR}/data/dkim"
+echo "Checking DKIM key..."
 
-openssl genrsa -out "$DKIM_KEY_FILE" 2048 2>/dev/null
-chmod 600 "$DKIM_KEY_FILE"
+DKIM_EXISTS=$(docker exec iredmail-core test -f /var/lib/dkim/${NEW_DOMAIN}.pem && echo "yes" || echo "no")
 
-# Generate public key for DNS
-PUBLIC_KEY=$(openssl rsa -in "$DKIM_KEY_FILE" -pubout 2>/dev/null | \
-    grep -v "PUBLIC KEY" | tr -d '\n')
+if [ "$DKIM_EXISTS" == "yes" ]; then
+    echo "DKIM key already exists."
+else
+    echo "Generating DKIM key..."
+    docker exec iredmail-core bash -c "
+        mkdir -p /var/lib/dkim
+        openssl genrsa -out /var/lib/dkim/${NEW_DOMAIN}.pem 2048 2>/dev/null
+        chown amavis:amavis /var/lib/dkim/${NEW_DOMAIN}.pem
+        chmod 600 /var/lib/dkim/${NEW_DOMAIN}.pem
+    "
 
+    # Verify DKIM key was created
+    DKIM_VERIFY=$(docker exec iredmail-core test -f /var/lib/dkim/${NEW_DOMAIN}.pem && echo "yes" || echo "no")
+    if [ "$DKIM_VERIFY" == "yes" ]; then
+        echo "DKIM key generated successfully."
+    else
+        echo "ERROR: Failed to generate DKIM key!"
+        exit 1
+    fi
+fi
+
+# =============================================================================
+# Extract public key
+# =============================================================================
+PUBLIC_KEY=$(docker exec iredmail-core openssl rsa -in /var/lib/dkim/${NEW_DOMAIN}.pem -pubout 2>/dev/null | grep -v "PUBLIC KEY" | tr -d '\n')
+
+if [ -z "$PUBLIC_KEY" ]; then
+    echo "ERROR: Could not extract DKIM public key!"
+    exit 1
+fi
+
+# =============================================================================
+# Show results
+# =============================================================================
 echo ""
 echo "=============================================="
-echo "Domain Added Successfully!"
+if [ "$ALREADY_EXISTS" == "true" ]; then
+    echo "Domain Already Configured"
+else
+    echo "Domain Added Successfully!"
+fi
 echo "=============================================="
 echo ""
-echo "Required DNS Records for ${NEW_DOMAIN}:"
+echo "Required DNS records for ${NEW_DOMAIN}:"
 echo ""
-echo "1. MX Record:"
-echo "   Name: ${NEW_DOMAIN}"
-echo "   Type: MX"
+echo "----------------------------------------------"
+echo "1. MX Record (Mail Exchange)"
+echo "----------------------------------------------"
+echo "   Type:     MX"
+echo "   Name:     @ (or ${NEW_DOMAIN})"
 echo "   Priority: 10"
-echo "   Value: ${HOSTNAME}"
+echo "   Value:    ${HOSTNAME}"
 echo ""
-echo "2. SPF Record:"
-echo "   Name: ${NEW_DOMAIN}"
-echo "   Type: TXT"
-echo "   Value: v=spf1 mx -all"
+echo "----------------------------------------------"
+echo "2. SPF Record (Sender Policy Framework)"
+echo "----------------------------------------------"
+echo "   Type:  TXT"
+echo "   Name:  @ (or ${NEW_DOMAIN})"
+echo "   Value: v=spf1 mx ~all"
 echo ""
-echo "3. DKIM Record:"
-echo "   Name: dkim._domainkey.${NEW_DOMAIN}"
-echo "   Type: TXT"
+echo "----------------------------------------------"
+echo "3. DKIM Record (DomainKeys Identified Mail)"
+echo "----------------------------------------------"
+echo "   Type:  TXT"
+echo "   Name:  dkim._domainkey"
 echo "   Value: v=DKIM1; k=rsa; p=${PUBLIC_KEY}"
 echo ""
-echo "4. DMARC Record:"
-echo "   Name: _dmarc.${NEW_DOMAIN}"
-echo "   Type: TXT"
-echo "   Value: v=DMARC1; p=quarantine; rua=mailto:postmaster@${NEW_DOMAIN}"
+echo "----------------------------------------------"
+echo "4. DMARC Record (Domain-based Message Auth)"
+echo "----------------------------------------------"
+echo "   Type:  TXT"
+echo "   Name:  _dmarc"
+echo "   Value: v=DMARC1; p=quarantine; rua=mailto:postmaster@${FIRST_MAIL_DOMAIN}"
 echo ""
-echo "After adding DNS records, you can create mailboxes via:"
-echo "  - iRedAdmin: https://${HOSTNAME}/iredadmin/"
+echo "=============================================="
+echo ""
+echo "Create mailboxes at: https://${HOSTNAME}/iredadmin/"
 echo ""
