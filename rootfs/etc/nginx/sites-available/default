@@ -46,9 +46,9 @@ server {
     root /var/www/html;
     index index.php index.html;
 
-    # Logging
+    # Logging - error log in shared directory for fail2ban integration
     access_log /var/log/nginx/access.log;
-    error_log /var/log/nginx/error.log;
+    error_log /var/log/iredmail/nginx-error.log;
 
     # ==========================================================================
     # Roundcube Webmail

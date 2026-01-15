@@ -700,9 +700,9 @@ create_roundcube_config() {
 // Default skin
 \$config['skin'] = 'elastic';
 
-// Logging
+// Logging - write to shared directory for fail2ban integration
 \$config['log_driver'] = 'file';
-\$config['log_dir'] = '/var/log/roundcube/';
+\$config['log_dir'] = '/var/log/iredmail/roundcube/';
 
 // Temp directory
 \$config['temp_dir'] = '/tmp/roundcube';
@@ -743,8 +743,8 @@ if (file_exists('/opt/iredmail/custom/roundcube/config.inc.php')) {
 EOF
 
     # Create required directories
-    mkdir -p /var/log/roundcube /tmp/roundcube
-    chown -R www-data:www-data /var/www/roundcube/config /var/log/roundcube /tmp/roundcube
+    mkdir -p /var/log/iredmail/roundcube /tmp/roundcube
+    chown -R www-data:www-data /var/www/roundcube/config /var/log/iredmail/roundcube /tmp/roundcube
     chmod 600 /var/www/roundcube/config/config.inc.php
 
     echo "Roundcube configuration created."
@@ -767,6 +767,9 @@ create_sogo_config() {
     SOGoLanguage = English;
     SOGoAppointmentSendEMailNotifications = YES;
     WOWorkersCount = ${SOGO_WORKERS:-3};
+
+    // Logging - write to shared directory for fail2ban integration
+    WOLogFile = /var/log/iredmail/sogo.log;
 
     // User sources (MySQL auth via vmail database)
     SOGoUserSources = (
@@ -836,21 +839,31 @@ EOF
 }
 
 # =============================================================================
-# Create Log Symlinks
+# Setup Logging for Fail2ban Integration
 # =============================================================================
 setup_logging() {
     echo "Setting up logging..."
 
-    # Create log directory
+    # Create log directories - all in /var/log/iredmail for fail2ban access
     mkdir -p /var/log/iredmail
+    mkdir -p /var/log/iredmail/roundcube
+    mkdir -p /var/log/nginx
 
-    # Symlink important logs
-    ln -sf /var/log/mail.log /var/log/iredmail/maillog
-    ln -sf /var/log/dovecot.log /var/log/iredmail/dovecot.log
-    ln -sf /var/log/nginx/error.log /var/log/iredmail/nginx-error.log
+    # Create log files if they don't exist (required for fail2ban)
+    # These files are written directly by rsyslog, dovecot, and other services
+    touch /var/log/iredmail/maillog
+    touch /var/log/iredmail/dovecot.log
+    touch /var/log/iredmail/auth.log
+    touch /var/log/iredmail/sogo.log
+    touch /var/log/iredmail/nginx-error.log
+    touch /var/log/iredmail/roundcube/errors.log
 
-    touch /var/log/mail.log
-    touch /var/log/dovecot.log
+    # Set proper permissions
+    chmod 644 /var/log/iredmail/*.log 2>/dev/null || true
+    chmod 644 /var/log/iredmail/roundcube/*.log 2>/dev/null || true
+    chown -R www-data:www-data /var/log/iredmail/roundcube
+
+    echo "Logging setup complete."
 }
 
 # =============================================================================
@@ -876,6 +889,7 @@ main() {
     # Check if already initialized
     if [ -f "$STATE_FILE" ]; then
         echo "Container already initialized, running configuration updates only..."
+        setup_logging
         create_postfix_mysql_configs
         create_iredapd_settings
         create_iredadmin_settings

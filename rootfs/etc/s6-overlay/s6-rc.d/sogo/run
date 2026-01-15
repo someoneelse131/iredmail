@@ -4,8 +4,12 @@ with-contenv
 foreground { echo "Starting SOGo..." }
 
 # Ensure directories exist
-foreground { mkdir -p /run/sogo /var/lib/sogo /var/log/sogo }
-foreground { chown -R sogo:sogo /run/sogo /var/lib/sogo /var/log/sogo }
+foreground { mkdir -p /run/sogo /var/lib/sogo }
+foreground { chown -R sogo:sogo /run/sogo /var/lib/sogo }
 
-# Start SOGo
-s6-setuidgid sogo /usr/sbin/sogod -WONoDetach YES -WOLogFile /var/log/sogo/sogo.log
+# Ensure SOGo can write to the shared log file
+foreground { touch /var/log/iredmail/sogo.log }
+foreground { chown sogo:sogo /var/log/iredmail/sogo.log }
+
+# Start SOGo - log to shared directory for fail2ban integration
+s6-setuidgid sogo /usr/sbin/sogod -WONoDetach YES -WOLogFile /var/log/iredmail/sogo.log
