@@ -5,18 +5,18 @@
 FROM ubuntu:22.04
 
 LABEL maintainer="iRedMail Docker Custom"
-LABEL version="1.0.0"
+LABEL version="1.2.0"
 LABEL description="Production-ready iRedMail Docker image with s6-overlay"
 
 # =============================================================================
-# Build Arguments
+# Build Arguments (pinned versions - update periodically)
 # =============================================================================
 ARG DEBIAN_FRONTEND=noninteractive
-ARG S6_OVERLAY_VERSION=3.1.6.2
-ARG IREDMAIL_VERSION=1.6.8
-ARG ROUNDCUBE_VERSION=1.6.6
-ARG IREDAPD_VERSION=5.6.0
-ARG IREDADMIN_VERSION=2.6
+ARG S6_OVERLAY_VERSION=3.2.0.3
+ARG IREDMAIL_VERSION=1.7.1
+ARG ROUNDCUBE_VERSION=1.6.12
+ARG IREDAPD_VERSION=5.9.1
+ARG IREDADMIN_VERSION=2.7
 
 # =============================================================================
 # Environment Variables
@@ -158,25 +158,25 @@ RUN mkdir -p /var/www/iredadmin && \
     chmod -R 755 /var/www/iredadmin
 
 # =============================================================================
-# Install Python Packages
+# Install Python Packages (pinned versions for stability)
 # =============================================================================
 # Combined requirements from iRedAPD and iRedAdmin
-# Using psycopg2-binary instead of psycopg2 to avoid needing PostgreSQL dev headers
+# All versions pinned for reproducible builds - update periodically
 RUN pip3 install --no-cache-dir \
-    'web.py>=0.62' \
-    'Jinja2>=2.2.0' \
-    'python-ldap>=3.3.1' \
-    'PyMySQL>=0.9.3' \
-    'mysqlclient' \
-    'psycopg2-binary' \
-    'requests>=2.10.0' \
-    'dnspython' \
-    'netifaces' \
-    'bcrypt' \
-    'simplejson' \
-    'SQLAlchemy>=1.3.16' \
-    'uwsgi' \
-    'more-itertools'
+    'web.py==0.62' \
+    'Jinja2==3.1.5' \
+    'python-ldap==3.4.5' \
+    'PyMySQL==1.1.2' \
+    'mysqlclient==2.2.7' \
+    'psycopg2-binary==2.9.11' \
+    'requests==2.32.4' \
+    'dnspython==2.8.0' \
+    'netifaces==0.11.0' \
+    'bcrypt==4.2.1' \
+    'simplejson==3.20.2' \
+    'SQLAlchemy==2.0.36' \
+    'uwsgi==2.0.28' \
+    'more-itertools==10.5.0'
 
 # =============================================================================
 # Create Required Users and Groups

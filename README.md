@@ -415,13 +415,16 @@ docker compose up -d
 | Component | Version |
 |-----------|---------|
 | Ubuntu | 22.04 LTS |
-| s6-overlay | 3.1.6.2 |
+| s6-overlay | 3.2.0.3 |
 | Postfix | System package |
 | Dovecot | System package |
-| Roundcube | 1.6.6 |
+| Roundcube | 1.6.12 |
 | SOGo | 5.x (nightly) |
-| iRedAdmin | 2.6 |
-| iRedAPD | 5.6.0 |
+| iRedAdmin | 2.7 |
+| iRedAPD | 5.9.1 |
+| MariaDB | 10.11 |
+| Fail2ban | 1.1.0 |
+| Certbot | 4.0.0 |
 
 ## License
 

@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.2.0] - 2026-01-15
+
+### Changed
+- Pin all Python dependencies to exact versions for reproducible builds
+- Pin Docker images to specific versions (fail2ban:1.1.0, certbot:v4.0.0)
+- Update s6-overlay from 3.1.6.2 to 3.2.0.3
+- Update Roundcube from 1.6.6 to 1.6.12 (security fixes)
+- Update iRedAPD from 5.6.0 to 5.9.1
+- Update iRedAdmin from 2.6 to 2.7
+
+### Security
+- Roundcube 1.6.12 fixes XSS vulnerability via SVG animate tag
+- Roundcube 1.6.12 fixes information disclosure in HTML style sanitizer
+
 ## [1.1.1] - 2026-01-15
 
 ### Fixed

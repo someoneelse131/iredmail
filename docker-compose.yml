@@ -99,7 +99,7 @@ services:
   # Fail2ban (Host Network for iptables access)
   # ============================================================================
   fail2ban:
-    image: crazymax/fail2ban:latest
+    image: crazymax/fail2ban:1.1.0
     container_name: iredmail-fail2ban
     restart: unless-stopped
     network_mode: host
@@ -121,7 +121,7 @@ services:
   # Certbot (SSL Certificate Management)
   # ============================================================================
   certbot:
-    image: certbot/certbot:latest
+    image: certbot/certbot:v4.0.0
     container_name: iredmail-certbot
     restart: unless-stopped
     volumes:
