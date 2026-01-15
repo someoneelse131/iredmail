@@ -34,10 +34,6 @@ Thumbs.db
 *.tmp
 tmp/
 
-# Development/planning files
+# Claude AI development files
 CLAUDE.md
-PLAN.md
 .claude/
-PROJECT_SUMMARY.txt
-DNS_RECORDS.txt
-iredmail-docker.conf
