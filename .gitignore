@@ -33,3 +33,11 @@ Thumbs.db
 # Temporary files
 *.tmp
 tmp/
+
+# Development/planning files
+CLAUDE.md
+PLAN.md
+.claude/
+PROJECT_SUMMARY.txt
+DNS_RECORDS.txt
+iredmail-docker.conf
