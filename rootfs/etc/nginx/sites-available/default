@@ -51,6 +51,33 @@ server {
     error_log /var/log/iredmail/nginx-error.log;
 
     # ==========================================================================
+    # Email Autodiscovery (Mozilla Autoconfig + Microsoft Autodiscover)
+    # ==========================================================================
+    # Mozilla Autoconfig - used by Thunderbird, many Android/iOS clients
+    # Dynamic PHP handler supports multiple domains
+    # ^~ gives priority over regex location that blocks hidden files
+    location ^~ /.well-known/autoconfig/ {
+        fastcgi_pass unix:/run/php/php8.1-fpm.sock;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME /var/www/html/autodiscover/autoconfig.php;
+    }
+
+    # Alternative autoconfig paths used by some clients
+    location = /mail/config-v1.1.xml {
+        fastcgi_pass unix:/run/php/php8.1-fpm.sock;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME /var/www/html/autodiscover/autoconfig.php;
+    }
+
+    # Microsoft Autodiscover - used by Outlook, Windows Mail
+    # Handle various URL patterns and case variations
+    location ~* ^/autodiscover/autodiscover\.xml$ {
+        fastcgi_pass unix:/run/php/php8.1-fpm.sock;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME /var/www/html/autodiscover/autodiscover.php;
+    }
+
+    # ==========================================================================
     # Roundcube Webmail
     # ==========================================================================
     # Redirect /mail to /mail/

@@ -269,6 +269,65 @@ This will:
 | Calendar | `https://mail.example.com/SOGo/dav/USERNAME/Calendar/personal/` |
 | Contacts | `https://mail.example.com/SOGo/dav/USERNAME/Contacts/personal/` |
 
+## Email Autodiscovery
+
+This mail server supports automatic client configuration via industry-standard autodiscovery protocols. When users add their email account, clients like Thunderbird, Outlook, iOS Mail, and Android automatically detect the correct server settings.
+
+### Supported Protocols
+
+| Protocol | Used By | Endpoint |
+|----------|---------|----------|
+| Mozilla Autoconfig | Thunderbird, iOS, Android, many others | `/.well-known/autoconfig/mail/config-v1.1.xml` |
+| Microsoft Autodiscover | Outlook, Windows Mail | `/autodiscover/autodiscover.xml` |
+| DNS SRV Records | iOS, macOS Mail, others | `_imap._tcp`, `_submission._tcp` |
+
+### How It Works
+
+1. User enters email `user@example.com` in their mail client
+2. Client queries `autoconfig.example.com` or `example.com/.well-known/autoconfig/...`
+3. Server returns XML with IMAP/SMTP settings
+4. Client auto-configures - no manual server entry needed
+
+### Required DNS Records for Autodiscovery
+
+For each mail domain, add these records to enable autodiscovery:
+
+```
+# Point autodiscovery hostnames to your mail server
+autoconfig.example.com.        IN CNAME  mail.example.com.
+autodiscover.example.com.      IN CNAME  mail.example.com.
+
+# SRV records for RFC 6186 compliant clients
+_imap._tcp.example.com.        IN SRV    0 1 993 mail.example.com.
+_imaps._tcp.example.com.       IN SRV    0 1 993 mail.example.com.
+_submission._tcp.example.com.  IN SRV    0 1 587 mail.example.com.
+```
+
+### Testing Autodiscovery
+
+```bash
+# Test Mozilla Autoconfig
+curl -s "https://mail.example.com/.well-known/autoconfig/mail/config-v1.1.xml?emailaddress=test@example.com"
+
+# Test Microsoft Autodiscover
+curl -s -X POST \
+  -H "Content-Type: application/xml" \
+  -d '<?xml version="1.0"?><Autodiscover xmlns="http://schemas.microsoft.com/exchange/autodiscover/outlook/requestschema/2006"><Request><EMailAddress>test@example.com</EMailAddress></Request></Autodiscover>' \
+  "https://mail.example.com/autodiscover/autodiscover.xml"
+```
+
+### Client Compatibility
+
+| Client | Protocol | Auto-Detection |
+|--------|----------|----------------|
+| Thunderbird | Mozilla Autoconfig | Full |
+| Apple Mail (iOS/macOS) | Autoconfig + SRV | Full |
+| Android Mail (Gmail app) | Mozilla Autoconfig | Full |
+| Outlook (Desktop) | Microsoft Autodiscover | Full |
+| Outlook (Mobile) | Microsoft Autodiscover | Full |
+| Windows Mail | Microsoft Autodiscover | Full |
+| K-9 Mail | Mozilla Autoconfig | Full |
+
 ## Ports
 
 | Port | Service | Protocol | Notes |

@@ -427,6 +427,24 @@ configure_nginx() {
         sed -i "s|/etc/letsencrypt/live/HOSTNAME/|/etc/letsencrypt/live/${HOSTNAME}/|g" /etc/nginx/sites-available/default
     fi
 
+    # Configure email autodiscovery files (dynamic PHP handlers)
+    local autoconfig_file="/var/www/html/autodiscover/autoconfig.php"
+    local autodiscover_file="/var/www/html/autodiscover/autodiscover.php"
+
+    if [ -f "$autoconfig_file" ]; then
+        sed -i "s|HOSTNAME|${HOSTNAME}|g" "$autoconfig_file"
+        sed -i "s|FIRST_MAIL_DOMAIN|${FIRST_MAIL_DOMAIN}|g" "$autoconfig_file"
+        chown www-data:www-data "$autoconfig_file"
+        echo "Configured Mozilla Autoconfig (dynamic)"
+    fi
+
+    if [ -f "$autodiscover_file" ]; then
+        sed -i "s|HOSTNAME|${HOSTNAME}|g" "$autodiscover_file"
+        sed -i "s|FIRST_MAIL_DOMAIN|${FIRST_MAIL_DOMAIN}|g" "$autodiscover_file"
+        chown www-data:www-data "$autodiscover_file"
+        echo "Configured Microsoft Autodiscover"
+    fi
+
     # Enable the site
     ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
     rm -f /etc/nginx/sites-enabled/default.dpkg-dist 2>/dev/null || true
