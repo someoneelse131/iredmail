@@ -141,6 +141,8 @@ domain_points_to_us() {
 echo "Checking current certificate status..."
 
 NEED_NEW_CERT="no"
+CERT_VALID="no"
+FORCE_FLAG="$1"
 
 if cert_exists; then
     echo "Found existing certificate."
@@ -155,19 +157,12 @@ if cert_exists; then
         if cert_expiring_soon; then
             echo "Note: Certificate is expiring within 30 days, will renew"
             NEED_NEW_CERT="yes"
+            CERT_VALID="no"
         else
-            echo ""
             echo "Certificate is valid and not expiring soon."
-            echo "To force renewal, run: $0 --force"
-
-            if [ "$1" != "--force" ]; then
-                echo ""
-                echo "Exiting (no action needed)."
-                exit 0
-            fi
-            echo ""
-            echo "Force flag detected, proceeding with renewal..."
-            NEED_NEW_CERT="yes"
+            NEED_NEW_CERT="no"
+            CERT_VALID="yes"
+            FORCE_FLAG="$1"
         fi
     else
         echo "Status: Self-signed or non-Let's Encrypt certificate"
@@ -293,14 +288,22 @@ echo "Current cert domains: ${CURRENT_CERT_DOMAINS:-none}"
 echo "Requested domains:    ${VALIDATED_DOMAINS}"
 echo ""
 
-# Determine certbot flags
+# Determine certbot flags and whether to proceed
 CERTBOT_FLAGS=""
+DOMAINS_CHANGED="no"
+
 if [ -n "$CURRENT_CERT_DOMAINS" ] && [ "$CURRENT_DOMAINS_SORTED" != "$REQUESTED_DOMAINS_SORTED" ]; then
     echo "Certificate domain list has changed - using --expand to add new domains"
     CERTBOT_FLAGS="--expand"
-elif [ "$1" == "--force" ]; then
+    DOMAINS_CHANGED="yes"
+elif [ "$FORCE_FLAG" == "--force" ]; then
     echo "Force flag detected - will renew certificate"
     CERTBOT_FLAGS="--force-renewal"
+elif [ "$CERT_VALID" == "yes" ]; then
+    echo ""
+    echo "Certificate is valid and domains haven't changed."
+    echo "No action needed. Use --force to renew anyway."
+    exit 0
 else
     echo "Using --keep-until-expiring (won't renew if cert is still valid)"
     CERTBOT_FLAGS="--keep-until-expiring"
