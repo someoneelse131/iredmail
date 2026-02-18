@@ -10,9 +10,9 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BACKUP_DIR="${PROJECT_DIR}/data/backup"
 
 SSH_KEY="/root/.ssh/id_ed25519_synology_backup"
-REMOTE_USER="backup"
+REMOTE_USER="backup_user"
 REMOTE_HOST="10.0.0.2"
-REMOTE_DIR="/volume1/backups/iredmail"
+REMOTE_DIR="/volume1/backup/iredmail"
 REMOTE_RETENTION_DAYS=30
 
 echo "=============================================="
