@@ -1,0 +1,8 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Tägliches Backup um 2:00
+0 2 * * * root /opt/iredmail/scripts/backup.sh >> /opt/iredmail/data/logs/backup.log 2>&1
+
+# lazy_expunge Cleanup: Mails älter als 30 Tage löschen um 3:00
+0 3 * * * root docker exec iredmail-core doveadm expunge -A mailbox '.EXPUNGED/*' savedbefore 30d >> /opt/iredmail/data/logs/expunge-cleanup.log 2>&1
