@@ -74,6 +74,26 @@ else
     fi
 fi
 
+# Install cron jobs (backup + lazy_expunge cleanup)
+echo ""
+echo "Installing cron jobs..."
+if [ "$EUID" -eq 0 ]; then
+    cp "${SCRIPT_DIR}/scripts/backup-cron" /etc/cron.d/iredmail-backup
+    chmod 644 /etc/cron.d/iredmail-backup
+    echo "Cron jobs installed."
+else
+    echo "Install cron jobs with sudo:"
+    echo "  sudo cp ${SCRIPT_DIR}/scripts/backup-cron /etc/cron.d/iredmail-backup"
+    echo "  sudo chmod 644 /etc/cron.d/iredmail-backup"
+    echo ""
+    read -p "Install cron jobs now? (requires sudo) [y/N]: " install_cron
+    if [[ "$install_cron" =~ ^[Yy]$ ]]; then
+        sudo cp "${SCRIPT_DIR}/scripts/backup-cron" /etc/cron.d/iredmail-backup
+        sudo chmod 644 /etc/cron.d/iredmail-backup
+        echo "Cron jobs installed."
+    fi
+fi
+
 echo ""
 echo "=============================================="
 echo "Setup Complete!"

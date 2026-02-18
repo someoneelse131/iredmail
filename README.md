@@ -188,6 +188,7 @@ iredmail-docker/
 │   ├── add-domain.sh           # Add mail domains
 │   ├── setup-firewall.sh       # UFW firewall configuration
 │   ├── backup.sh               # Backup utility
+│   ├── backup-cron             # Cron jobs (backup + expunge cleanup)
 │   └── restore.sh              # Restore utility
 ├── sql/                        # Database schemas
 │   ├── vmail.sql
@@ -359,13 +360,26 @@ All data is stored in the `./data/` directory:
 
 ## Backup & Restore
 
-### Create Backup
+### Automatic Backups
+
+The setup script installs a cron job (`/etc/cron.d/iredmail-backup`) that runs daily at 2:00 AM. Backups include database, email, DKIM keys, and configuration.
+
+### Deleted Mail Protection (lazy_expunge)
+
+Dovecot's `lazy_expunge` plugin is enabled by default. When emails are deleted or expunged via IMAP, they are moved to a hidden `.EXPUNGED` namespace instead of being permanently deleted. A cron job automatically purges expunged mails older than 30 days (runs daily at 3:00 AM).
+
+To manually recover expunged mails for a user:
+
+```bash
+docker exec iredmail-core doveadm mailbox list -u user@example.com
+# Look for .EXPUNGED/* mailboxes
+```
+
+### Create Manual Backup
 
 ```bash
 ./scripts/backup.sh
 ```
-
-Backups include database, email, DKIM keys, and configuration.
 
 ### Restore from Backup
 
