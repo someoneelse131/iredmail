@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# iRedMail Offsite Backup – rsync to Synology NAS via WireGuard
+# iRedMail Offsite Backup – scp to Synology NAS via WireGuard
 # =============================================================================
 
 set -e
@@ -15,6 +15,8 @@ REMOTE_HOST="10.0.0.2"
 REMOTE_DIR="/volume1/backup/iredmail"
 REMOTE_PORT=44
 REMOTE_RETENTION_DAYS=30
+
+SSH_OPTS="-p ${REMOTE_PORT} -i ${SSH_KEY} -o StrictHostKeyChecking=accept-new"
 
 echo "=============================================="
 echo "iRedMail Offsite Backup"
@@ -41,20 +43,19 @@ if ! ping -c 3 -W 5 "$REMOTE_HOST" > /dev/null 2>&1; then
 fi
 echo "VPN connection OK."
 
-# rsync to NAS
+# scp to NAS
 echo ""
-echo "Syncing to ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}..."
-rsync -avz --progress \
-    -e "ssh -p ${REMOTE_PORT} -i ${SSH_KEY} -o StrictHostKeyChecking=accept-new" \
+echo "Copying to ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}..."
+scp -O -P "${REMOTE_PORT}" -i "${SSH_KEY}" -o StrictHostKeyChecking=accept-new \
     "$LATEST_BACKUP" \
     "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/"
 
-echo "Sync complete."
+echo "Copy complete."
 
 # Clean old remote backups
 echo ""
 echo "Cleaning remote backups older than ${REMOTE_RETENTION_DAYS} days..."
-ssh -p "$REMOTE_PORT" -i "$SSH_KEY" "${REMOTE_USER}@${REMOTE_HOST}" \
+ssh ${SSH_OPTS} "${REMOTE_USER}@${REMOTE_HOST}" \
     "find ${REMOTE_DIR} -name 'iredmail_backup_*.tar.gz' -mtime +${REMOTE_RETENTION_DAYS} -delete"
 echo "Remote cleanup done."
 
