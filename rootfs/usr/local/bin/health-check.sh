@@ -26,7 +26,7 @@ if ! check_service "Postfix" "postfix status"; then
 fi
 
 # Check Dovecot
-if ! check_service "Dovecot" "doveadm who -c 1"; then
+if ! check_service "Dovecot" "doveadm who"; then
     errors=$((errors + 1))
 fi
 
