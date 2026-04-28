@@ -58,7 +58,7 @@ This project fixes all known issues from the archived official iRedMail Docker i
 - 20GB disk space minimum
 - Valid domain with DNS control
 - Clean IP address (not on blacklists)
-- Ports 25, 80, 443, 587, 993 accessible
+- Ports 25, 80, 443, 465, 587, 993, 4190 accessible
 
 ## Quick Start
 
@@ -179,7 +179,9 @@ iredmail-docker/
 │   ├── postfix/
 │   ├── dovecot/
 │   ├── amavis/
+│   ├── mariadb/
 │   ├── nginx/
+│   ├── iredadmin/
 │   ├── roundcube/
 │   ├── sogo/
 │   └── fail2ban/
@@ -187,12 +189,17 @@ iredmail-docker/
 │   ├── obtain-cert.sh          # SSL certificate management
 │   ├── add-domain.sh           # Add mail domains
 │   ├── setup-firewall.sh       # UFW firewall configuration
-│   ├── backup.sh               # Backup utility
+│   ├── backup.sh               # Local backup utility
 │   ├── backup-cron             # Cron jobs (backup + expunge cleanup)
-│   └── restore.sh              # Restore utility
+│   ├── offsite-backup.sh       # Offsite backup to remote host via scp
+│   ├── offsite-backup-cron     # Cron job for nightly offsite backup
+│   ├── restore.sh              # Full restore utility
+│   └── restore-mailbox.sh      # Restore a single mailbox from backup
 ├── sql/                        # Database schemas
 │   ├── vmail.sql
 │   ├── iredadmin.sql
+│   ├── iredapd.sql
+│   ├── amavisd.sql
 │   ├── roundcubemail.sql
 │   └── sogo.sql
 └── data/                       # Runtime data (gitignored)
@@ -387,6 +394,18 @@ docker exec iredmail-core doveadm mailbox list -u user@example.com
 ./scripts/restore.sh ./data/backup/iredmail_backup_YYYYMMDD_HHMMSS.tar.gz
 ```
 
+### Offsite Backup
+
+`scripts/offsite-backup.sh` uploads the most recent local backup to a remote host via `scp`. SSH key path, remote host, user, port, and retention are configured at the top of the script. A companion cron file (`scripts/offsite-backup-cron`) runs it nightly at 02:30 (30 min after the local backup).
+
+### Restore a Single Mailbox
+
+To restore one user's Maildir from a backup archive without touching other mailboxes or services:
+
+```bash
+./scripts/restore-mailbox.sh ./data/backup/iredmail_backup_YYYYMMDD_HHMMSS.tar.gz user@example.com
+```
+
 ## Customization
 
 Configuration overrides can be placed in the `config/` directory:
@@ -488,13 +507,13 @@ docker compose up -d
 | Component | Version |
 |-----------|---------|
 | Ubuntu | 22.04 LTS |
-| s6-overlay | 3.2.0.3 |
+| s6-overlay | 3.1.6.2 |
 | Postfix | System package |
 | Dovecot | System package |
-| Roundcube | 1.6.12 |
+| Roundcube | 1.6.6 |
 | SOGo | 5.x (nightly) |
 | iRedAdmin | 2.7 |
-| iRedAPD | 5.9.1 |
+| iRedAPD | 5.6.0 |
 | MariaDB | 10.11 |
 | Fail2ban | 1.1.0 |
 | Certbot | 4.0.0 |
