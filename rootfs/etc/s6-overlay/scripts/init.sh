@@ -398,6 +398,14 @@ service lmtp {
 }
 MASTEREOF
 
+    # TLS - point Dovecot at the Let's Encrypt cert (mirrors Postfix above).
+    # Filename starts with 99- so it loads after 10-ssl.conf and wins.
+    cat > /etc/dovecot/conf.d/99-ssl-letsencrypt.conf << EOF
+ssl = required
+ssl_cert = </etc/letsencrypt/live/${HOSTNAME}/fullchain.pem
+ssl_key  = </etc/letsencrypt/live/${HOSTNAME}/privkey.pem
+EOF
+
     # Apply custom configuration
     if [ -f "/opt/iredmail/custom/dovecot/custom.conf" ]; then
         echo "Applying custom Dovecot configuration..."
