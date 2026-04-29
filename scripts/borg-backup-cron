@@ -1,0 +1,6 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Borg-Backup alle 4 Stunden (00:15, 04:15, 08:15, 12:15, 16:15, 20:15)
+# Versatz +15 Min damit's nicht mit dem alten daily-Backup um 02:00 kollidiert.
+15 */4 * * * root /opt/iredmail/scripts/borg-backup.sh >> /opt/iredmail/data/logs/borg-backup.log 2>&1

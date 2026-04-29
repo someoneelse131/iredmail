@@ -189,12 +189,15 @@ iredmail-docker/
 │   ├── obtain-cert.sh          # SSL certificate management
 │   ├── add-domain.sh           # Add mail domains
 │   ├── setup-firewall.sh       # UFW firewall configuration
-│   ├── backup.sh               # Local backup utility
-│   ├── backup-cron             # Cron jobs (backup + expunge cleanup)
-│   ├── offsite-backup.sh       # Offsite backup to remote host via scp
-│   ├── offsite-backup-cron     # Cron job for nightly offsite backup
-│   ├── restore.sh              # Full restore utility
-│   └── restore-mailbox.sh      # Restore a single mailbox from backup
+│   ├── borg-backup.sh          # Borg-based backup (4h, primary)
+│   ├── borg-backup-cron        # Cron job for borg-backup.sh
+│   ├── restore-borg.sh         # Interactive Borg restore
+│   ├── backup.sh               # Legacy daily tar backup
+│   ├── backup-cron             # Legacy backup cron + expunge cleanup
+│   ├── offsite-backup.sh       # Legacy offsite scp (currently disabled)
+│   ├── offsite-backup-cron     # Cron file for legacy offsite
+│   ├── restore.sh              # Legacy tar-based restore
+│   └── restore-mailbox.sh      # Restore a single mailbox from tar backup
 ├── sql/                        # Database schemas
 │   ├── vmail.sql
 │   ├── iredadmin.sql
@@ -210,7 +213,9 @@ iredmail-docker/
     ├── clamav/
     ├── sogo/
     ├── logs/
-    └── backup/
+    ├── borg-repo/               # Borg backup repository (encrypted)
+    ├── db-dumps/                # Latest mysqldump (regenerated each Borg run)
+    └── backup/                  # Legacy tar.gz backups
 ```
 
 ## DKIM Setup
@@ -367,44 +372,88 @@ All data is stored in the `./data/` directory:
 
 ## Backup & Restore
 
-### Automatic Backups
+Two backup systems run in parallel:
 
-The setup script installs a cron job (`/etc/cron.d/iredmail-backup`) that runs daily at 2:00 AM. Backups include database, email, DKIM keys, and configuration.
+| | Borg (primary) | Tar (legacy / safety net) |
+|---|---|---|
+| Frequency | every 4 h (00:15, 04:15, …, 20:15) | daily 02:00 |
+| Format | deduplicating, encrypted (BLAKE2b) | gzipped tar |
+| Storage | `data/borg-repo/` | `data/backup/iredmail_backup_*.tar.gz` |
+| Retention | 6 hourly + 14 daily + 8 weekly + 12 monthly | 30 days |
+| Restore tool | `scripts/restore-borg.sh` | `scripts/restore.sh` |
 
-### Deleted Mail Protection (lazy_expunge)
+The Borg path is what you should use for both routine restores and disaster recovery. The tar path is kept for now as a second, independent safety net.
+
+### Borg backup (primary)
+
+`setup.sh` installs `borgbackup`, generates a `BORG_PASSPHRASE` (64 hex chars) into `.env`, runs `borg init --encryption=repokey-blake2`, and installs the 4-hour cron at `/etc/cron.d/iredmail-borg-backup`.
+
+Logs go to `data/logs/borg-backup.log`.
+
+The script (`scripts/borg-backup.sh`) does, on each run:
+
+1. `mysqldump --all-databases --single-transaction` → `data/db-dumps/all_databases.sql`
+2. `borg create` over `data/{vmail,dkim,ssl,sogo,mlmmj,mlmmj-archive,iredmail-state,imapsieve_copy,spamassassin,db-dumps}` + `config/`, `rootfs/`, `scripts/`, `docker-compose.yml`, `Dockerfile`, `.env`
+3. `borg prune` per retention policy
+4. `borg compact` once a week (Sundays at 00:xx)
+
+#### Manual backup
+```bash
+sudo /opt/iredmail/scripts/borg-backup.sh
+```
+
+#### List archives
+```bash
+export BORG_PASSPHRASE=$(grep '^BORG_PASSPHRASE=' /opt/iredmail/.env | cut -d= -f2-)
+borg list /opt/iredmail/data/borg-repo
+borg info /opt/iredmail/data/borg-repo
+```
+
+#### Restore (interactive)
+```bash
+sudo /opt/iredmail/scripts/restore-borg.sh
+```
+The script lists archives, prompts for one, then offers: list files, extract a single path to `/tmp`, or full restore (stops container → overwrites `data/{vmail,dkim,ssl,...}` → re-imports DB → restarts).
+
+#### Restore one file from a Borg archive (manual)
+```bash
+export BORG_PASSPHRASE=$(grep '^BORG_PASSPHRASE=' /opt/iredmail/.env | cut -d= -f2-)
+cd /tmp
+borg extract /opt/iredmail/data/borg-repo::mail-2026-04-29_100551 \
+    'opt/iredmail/data/vmail/example.com/.../user@/Maildir/cur/<file>'
+```
+
+#### Disaster recovery (whole new server)
+See [`README-DISASTER-RECOVERY.md`](README-DISASTER-RECOVERY.md) for the worst-case recipe.
+
+### Legacy tar backup (parallel safety net)
+
+The older daily-tar path is still active during the Borg break-in period. It writes a single `iredmail_backup_YYYYMMDD_HHMMSS.tar.gz` under `data/backup/` containing the DB dump and tar.gz files of `vmail`, `dkim`, `ssl`, and `config`.
+
+```bash
+# Manual
+./scripts/backup.sh
+
+# Restore
+./scripts/restore.sh ./data/backup/iredmail_backup_YYYYMMDD_HHMMSS.tar.gz
+
+# Restore a single mailbox (without overwriting others)
+./scripts/restore-mailbox.sh ./data/backup/iredmail_backup_YYYYMMDD_HHMMSS.tar.gz user@example.com
+```
+
+### Deleted mail protection (lazy_expunge)
 
 Dovecot's `lazy_expunge` plugin is enabled by default. When emails are deleted or expunged via IMAP, they are moved to a hidden `.EXPUNGED` namespace instead of being permanently deleted. A cron job automatically purges expunged mails older than 30 days (runs daily at 3:00 AM).
 
 To manually recover expunged mails for a user:
-
 ```bash
 docker exec iredmail-core doveadm mailbox list -u user@example.com
 # Look for .EXPUNGED/* mailboxes
 ```
 
-### Create Manual Backup
+### Offsite backup (planned)
 
-```bash
-./scripts/backup.sh
-```
-
-### Restore from Backup
-
-```bash
-./scripts/restore.sh ./data/backup/iredmail_backup_YYYYMMDD_HHMMSS.tar.gz
-```
-
-### Offsite Backup
-
-`scripts/offsite-backup.sh` uploads the most recent local backup to a remote host via `scp`. SSH key path, remote host, user, port, and retention are configured at the top of the script. A companion cron file (`scripts/offsite-backup-cron`) runs it nightly at 02:30 (30 min after the local backup).
-
-### Restore a Single Mailbox
-
-To restore one user's Maildir from a backup archive without touching other mailboxes or services:
-
-```bash
-./scripts/restore-mailbox.sh ./data/backup/iredmail_backup_YYYYMMDD_HHMMSS.tar.gz user@example.com
-```
+The Borg repo is currently local-only. The plan is to mirror it offsite to a Hetzner Storage Box (or similar SSH-reachable target) via `borg create` to a remote URL. The legacy `scripts/offsite-backup.sh` (scp-based, against a Synology NAS) is currently disabled (`/etc/cron.d/iredmail-offsite-backup.disabled`).
 
 ## Customization
 

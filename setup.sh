@@ -94,6 +94,70 @@ else
     fi
 fi
 
+# Borg backup setup (4h dedup+encrypted backup, primary going forward)
+echo ""
+echo "Setting up Borg backup (every 4h, encrypted, deduplicating)..."
+
+setup_borg() {
+    # Install borg if missing
+    if ! command -v borg >/dev/null 2>&1; then
+        echo "  Installing borgbackup..."
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get update -qq && apt-get install -y borgbackup
+        elif command -v dnf >/dev/null 2>&1; then
+            dnf install -y borgbackup
+        else
+            echo "  WARNING: unsupported package manager. Install borgbackup manually."
+            return 1
+        fi
+    fi
+    echo "  borg version: $(borg --version)"
+
+    # Ensure BORG_PASSPHRASE in .env
+    if ! grep -q '^BORG_PASSPHRASE=' "${SCRIPT_DIR}/.env"; then
+        echo "  Generating BORG_PASSPHRASE (64 hex chars) and appending to .env..."
+        local pp
+        pp="$(openssl rand -hex 32)"
+        printf '\n# Borg backup passphrase (added by setup.sh)\nBORG_PASSPHRASE=%s\n' "${pp}" >> "${SCRIPT_DIR}/.env"
+    else
+        echo "  BORG_PASSPHRASE already set in .env"
+    fi
+
+    # Init repo if not yet present
+    local repo="${SCRIPT_DIR}/data/borg-repo"
+    if [ ! -d "${repo}/data" ]; then
+        echo "  Initialising Borg repo at ${repo}..."
+        local pp
+        pp="$(grep '^BORG_PASSPHRASE=' "${SCRIPT_DIR}/.env" | head -n1 | cut -d= -f2-)"
+        BORG_PASSPHRASE="${pp}" borg init --encryption=repokey-blake2 "${repo}"
+        echo "  Borg repo initialised."
+    else
+        echo "  Borg repo already exists at ${repo}"
+    fi
+
+    # Install Borg cron
+    cp "${SCRIPT_DIR}/scripts/borg-backup-cron" /etc/cron.d/iredmail-borg-backup
+    chmod 644 /etc/cron.d/iredmail-borg-backup
+    echo "  Borg cron installed at /etc/cron.d/iredmail-borg-backup"
+}
+
+if [ "$EUID" -eq 0 ]; then
+    setup_borg
+else
+    echo "Borg setup requires root (apt install + cron file). Run setup as root or run manually:"
+    echo "  sudo apt-get install -y borgbackup"
+    echo "  echo 'BORG_PASSPHRASE='\$(openssl rand -hex 32) | sudo tee -a ${SCRIPT_DIR}/.env"
+    echo "  export BORG_PASSPHRASE=\$(grep ^BORG_PASSPHRASE= ${SCRIPT_DIR}/.env | cut -d= -f2-)"
+    echo "  sudo borg init --encryption=repokey-blake2 ${SCRIPT_DIR}/data/borg-repo"
+    echo "  sudo cp ${SCRIPT_DIR}/scripts/borg-backup-cron /etc/cron.d/iredmail-borg-backup"
+    echo "  sudo chmod 644 /etc/cron.d/iredmail-borg-backup"
+    echo ""
+    read -p "Set up Borg now? (requires sudo) [y/N]: " setup_borg_now
+    if [[ "$setup_borg_now" =~ ^[Yy]$ ]]; then
+        sudo bash -c "$(declare -f setup_borg); SCRIPT_DIR='${SCRIPT_DIR}' setup_borg"
+    fi
+fi
+
 echo ""
 echo "=============================================="
 echo "Setup Complete!"

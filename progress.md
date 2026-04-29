@@ -105,11 +105,36 @@ UIDVALIDITY changed (new maildir). Thunderbird will detect this and rebuild its 
 
 ---
 
-## Status: storage path bug FIXED + flo@chiaruzzi.ch and contact@maisonsoave.ch RESTORED
+### 2026-04-29 ~10:00 — Borg-based 4h backup added (DONE)
+- [x] Installed `borgbackup` 1.2.8 on the server (Ubuntu 24.04 noble).
+- [x] Added `BORG_PASSPHRASE` to `/opt/iredmail/.env` (64 hex chars, generated with `openssl rand -hex 32`).
+- [x] New script `scripts/borg-backup.sh` — synced to `/opt/iredmail/scripts/borg-backup.sh`, owned by `masteradmin`, mode 0755.
+- [x] Initialized `/opt/iredmail/data/borg-repo` with `--encryption=repokey-blake2`.
+- [x] First two manual backups verified end-to-end:
+  - Archive 1: 139.91 MB original → 75.19 MB compressed → 75.19 MB deduplicated (initial).
+  - Archive 2 (28s later): 139.97 MB original → 75.22 MB compressed → **565 kB deduplicated** — dedup ratio ~247x. Repo total stays at ~75 MB.
+- [x] Cron `/etc/cron.d/iredmail-borg-backup` active. Runs `*/4 *:15`, i.e. 6×/day. Logs to `data/logs/borg-backup.log`.
+- [x] Retention: `--keep-hourly 6 --keep-daily 14 --keep-weekly 8 --keep-monthly 12`. `borg compact` runs only Sundays at 00:xx.
+- [x] Old `backup.sh` (daily 02:00) **kept running in parallel** as a safety net during break-in period.
+- DB dump path: `/opt/iredmail/data/db-dumps/all_databases.sql` (overwritten each run, 700/600 perms, included in archive).
+
+#### Restore quickref
+```
+export BORG_PASSPHRASE=$(grep '^BORG_PASSPHRASE=' /opt/iredmail/.env | cut -d= -f2-)
+borg list /opt/iredmail/data/borg-repo
+borg extract /opt/iredmail/data/borg-repo::<archive-name> path/to/file
+```
+
+---
+
+## Status: storage path bug FIXED + flo@chiaruzzi.ch and contact@maisonsoave.ch RESTORED + Borg 4h backups ACTIVE
 
 What's left for tomorrow / later:
 
-- **Offsite backup repair** (Synology NAS via WireGuard 10.0.0.2:44) — deferred per user. Re-enable with `mv /etc/cron.d/iredmail-offsite-backup.disabled /etc/cron.d/iredmail-offsite-backup` after Synology side fixed. Issues seen in `offsite-backup.log`: 26 Apr `Permission denied` on SSH (key likely removed/rotated on NAS), 27+28 Apr `Cannot reach 10.0.0.2 - VPN down`.
+- **Offsite backup** — primary plan now: Hetzner Storage Box + `borg sync` (or `borg create` to a remote SSH repo). Old Synology NAS path via WireGuard 10.0.0.2:44 is deferred. Re-enable with `mv /etc/cron.d/iredmail-offsite-backup.disabled /etc/cron.d/iredmail-offsite-backup` after Synology side fixed. Issues seen in `offsite-backup.log`: 26 Apr `Permission denied` on SSH (key likely removed/rotated on NAS), 27+28 Apr `Cannot reach 10.0.0.2 - VPN down`.
+- **Borg key export** — in `repokey` mode the encryption key lives inside the repo (encrypted with the passphrase). For an extra layer of safety run `borg key export /opt/iredmail/data/borg-repo /root/borg-key.txt` and store that file off-server (1Password / printout). The passphrase alone isn't enough if the entire `data/` disk is gone.
+- **Old `backup.sh` retire** — once Borg has run reliably for ~2 weeks, remove `/etc/cron.d/iredmail-backup` and the legacy `backup.sh`/`restore.sh` (or keep them as documented secondary path).
+- **Kernel reboot pending** — `apt-get install borgbackup` flagged that 6.8.0-110 is available but 6.8.0-90 is running. Reboot at next maintenance window.
 - **Other domain mailboxes** (`purfacted.com`, `kirby.rocks`) — `flo@purfacted.com`, `lsgreen@purfacted.com`, `noreply@purfacted.com`, `joplin@kirby.rocks`, `kanban@kirby.rocks`, `scanlsgreen@chiaruzzi.ch` are still empty on server. User should check other devices (phone, tablet, other laptops) for cached IMAP content. If content exists anywhere, same `doveadm import` recipe applies.
 - **Trash recovery for flo@chiaruzzi.ch** — Thunderbird Trash had 629 msgs. Skipped during restore. If user wants, can be imported as a separate `Trash` mailbox from `/home/kirby/mail-rescue-20260429-012222/`.
 - **Other Thunderbird folders** — only INBOX/Sent/Drafts were restored. If there are other IMAP folders (Spam, Archive, custom), those Thunderbird mbox files exist under `INBOX.sbd/` but were NOT touched. Same recipe applies.
