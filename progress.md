@@ -127,7 +127,52 @@ borg extract /opt/iredmail/data/borg-repo::<archive-name> path/to/file
 
 ---
 
-## Status: storage path bug FIXED + flo@chiaruzzi.ch and contact@maisonsoave.ch RESTORED + Borg 4h backups ACTIVE
+### 2026-04-29 ~10:30 — Subfolder restore (DONE)
+After user reopened Thunderbird with renamed `*.OLD` caches, only top-level INBOX/Sent/Drafts were visible — all sub-folders (TB stored them under `INBOX.sbd/...`) were missing on the server because the first restore round only imported top-level mboxes.
+
+Re-imported from `mail-rescue-20260429-012222/` recursively, mapping TB's `INBOX.sbd/A.sbd/B` layout to Dovecot's dot-separated `INBOX.A.B` IMAP namespace. Helper script: `/tmp/restore-folders.sh` (per user, sorted by depth so parent imports happen before children try to use them as dest_parent; auto-`doveadm mailbox create` for parent-only folders that don't have their own mbox file).
+
+#### flo@chiaruzzi.ch — 18 mailboxes total
+
+| Mailbox | Msgs |
+|---|---|
+| INBOX | 831 |
+| Sent / Drafts / Trash | 41 / 14 / 0 |
+| INBOX.0_work | 7 |
+| INBOX.0_work.01_application | 23 |
+| INBOX.0_work.02_RAV | 11 |
+| INBOX.0_work.03_hays | 14 |
+| INBOX.1_school (parent only) | 0 |
+| INBOX.1_school.19_newwords | 11 |
+| INBOX.2_government (parent only) | 0 |
+| INBOX.2_government.25_trustee | 5 |
+| INBOX.3_orders | 36 |
+| INBOX.3_orders.30_shipment | 5 |
+| INBOX.5_health | 3 |
+| INBOX.6_flat | 1 (deduped from 2) |
+| INBOX.7_misc (parent only) | 0 |
+| INBOX.7_misc.79_IT | 5 |
+
+#### contact@maisonsoave.ch — 10 mailboxes total
+
+| Mailbox | Msgs |
+|---|---|
+| INBOX | 26 |
+| Sent / Drafts / Trash | 24 / 12 / 0 |
+| INBOX.Suppliers (parent only) | 0 |
+| INBOX.Suppliers.Poldau | 6 |
+| INBOX.Suppliers.Declined (parent only) | 0 |
+| INBOX.Suppliers.Declined.Dykon | 4 |
+| INBOX.Suppliers.Declined.Mayas | 2 |
+| INBOX.Suppliers.Declined.Novaya | 2 |
+
+All counts match `grep -c '^From '` on the source mboxes within ±1 (mbox `^From` parsing is approximate).
+
+### 2026-04-29 ~10:33 — Borg coverage verified
+- New archive `mail-2026-04-29_103351` captures the new structure: 1007 maildir files in chiaruzzi.ch + 76 in maisonsoave.ch + 80 subfolder directory entries with correct cur/new/tmp layout.
+- Confirmed via `borg list` that every `.INBOX.*` maildir is present.
+
+## Status: storage path bug FIXED + INBOX/Sent/Drafts/Trash + ALL sub-folders RESTORED + Borg backups capture everything + Borg 4h backups ACTIVE
 
 What's left for tomorrow / later:
 
