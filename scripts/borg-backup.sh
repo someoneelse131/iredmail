@@ -67,10 +67,14 @@ echo "Repo:    ${BORG_REPO}"
 echo "=============================================="
 
 # 1) MariaDB dump (single-transaction is consistent for InnoDB).
+# Write to a temp file and rename atomically — so a failed dump doesn't
+# clobber the previous good one (shell `>` truncates the target up-front).
 echo ""
 echo "[1/3] Dumping MariaDB..."
 mkdir -p "${DB_DUMP_DIR}"
 chmod 700 "${DB_DUMP_DIR}"
+DB_DUMP_TMP="${DB_DUMP_FILE}.tmp.$$"
+trap 'rm -f "${DB_DUMP_TMP}"' EXIT
 docker exec iredmail-db mysqldump \
     -u root \
     -p"${MYSQL_ROOT_PASSWORD}" \
@@ -79,8 +83,9 @@ docker exec iredmail-db mysqldump \
     --quick \
     --routines \
     --events \
-    > "${DB_DUMP_FILE}"
-chmod 600 "${DB_DUMP_FILE}"
+    > "${DB_DUMP_TMP}"
+chmod 600 "${DB_DUMP_TMP}"
+mv "${DB_DUMP_TMP}" "${DB_DUMP_FILE}"
 echo "DB dump: $(du -h "${DB_DUMP_FILE}" | cut -f1)"
 
 # 2) Borg create — dedup + zstd compression + encryption (via repokey).

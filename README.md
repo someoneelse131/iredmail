@@ -393,7 +393,7 @@ Logs go to `data/logs/borg-backup.log`.
 The script (`scripts/borg-backup.sh`) does, on each run:
 
 1. `mysqldump --all-databases --single-transaction` → `data/db-dumps/all_databases.sql`
-2. `borg create` over `data/{vmail,dkim,ssl,sogo,mlmmj,mlmmj-archive,iredmail-state,imapsieve_copy,spamassassin,db-dumps}` + `config/`, `rootfs/`, `scripts/`, `docker-compose.yml`, `Dockerfile`, `.env`
+2. `borg create` over `data/`, `config/`, `rootfs/`, `scripts/`, `docker-compose.yml`, `Dockerfile`, `.env` — with these `data/` subdirectories excluded: `backup/` (legacy tar), `borg-repo/` (would recurse), `logs/`, `mysql/` (raw DB files; we use the dump), `clamav/`, `postfix-queue/`, `certbot-www/`, `rescue-*/`
 3. `borg prune` per retention policy
 4. `borg compact` once a week (Sundays at 00:xx)
 
