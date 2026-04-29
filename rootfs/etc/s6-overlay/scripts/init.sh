@@ -287,7 +287,10 @@ configure_postfix() {
 
     # Virtual transport to Dovecot LMTP
     postconf -e "virtual_transport = lmtp:unix:private/dovecot-lmtp"
-    postconf -e "virtual_mailbox_base = /var/vmail"
+    # NOTE: must match Dovecot's mail path and the docker-compose bind-mount target
+    # (./data/vmail -> /var/vmail/vmail1). Anything outside this path is in the
+    # container's writable overlay and is lost on `docker rm` / image rebuild.
+    postconf -e "virtual_mailbox_base = /var/vmail/vmail1"
     postconf -e "virtual_minimum_uid = 2000"
     postconf -e "virtual_uid_maps = static:2000"
     postconf -e "virtual_gid_maps = static:2000"
@@ -346,20 +349,23 @@ connect = host=${DB_HOST} dbname=vmail user=vmail password=${VMAIL_DB_PASSWORD}
 default_pass_scheme = SSHA512
 
 # Password query - authenticate users from mailbox table
+# NOTE: '/var/vmail/vmail1/' must match Postfix virtual_mailbox_base and the
+# docker-compose bind-mount target. Anything outside that path lives in the
+# container's writable overlay and disappears on rebuild.
 password_query = SELECT username AS user, password, \\
-    CONCAT('/var/vmail/', maildir) AS userdb_home, \\
+    CONCAT('/var/vmail/vmail1/', maildir) AS userdb_home, \\
     2000 AS userdb_uid, \\
     2000 AS userdb_gid, \\
-    CONCAT('maildir:/var/vmail/', maildir) AS userdb_mail \\
+    CONCAT('maildir:/var/vmail/vmail1/', maildir) AS userdb_mail \\
     FROM mailbox \\
     WHERE username = '%u' AND active = 1
 
 # User query - get user information
 user_query = SELECT \\
-    CONCAT('/var/vmail/', maildir) AS home, \\
+    CONCAT('/var/vmail/vmail1/', maildir) AS home, \\
     2000 AS uid, \\
     2000 AS gid, \\
-    CONCAT('maildir:/var/vmail/', maildir) AS mail \\
+    CONCAT('maildir:/var/vmail/vmail1/', maildir) AS mail \\
     FROM mailbox \\
     WHERE username = '%u' AND active = 1
 
@@ -677,7 +683,11 @@ iredapd_db_user = 'iredapd'
 iredapd_db_password = '${IREDAPD_DB_PASSWORD}'
 
 # Mail storage
-storage_base_directory = '/var/vmail'
+# NOTE: must match Dovecot/Postfix mail path and the docker-compose bind-mount
+# target. iRedAdmin's user-creation splitter pops the last path segment as
+# storage_node, so this MUST be '/var/vmail/vmail1' to land new mailboxes in
+# the persisted bind-mount. (libs/sqllib/user.py:524-528)
+storage_base_directory = '/var/vmail/vmail1'
 storage_node = 'vmail1'
 default_mta_transport = 'dovecot'
 
