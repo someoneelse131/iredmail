@@ -163,6 +163,35 @@ if [ "$(date +%u)" = "7" ] && [ "$(date +%H)" = "00" ]; then
     borg compact --verbose
 fi
 
+# Offsite mirror to HiDrive (Ionos). Configured via /root/.config/rclone/rclone.conf
+# (remote name "hidrive"). Local borg success is not blocked by remote-sync failure;
+# we just emit a WARN to stderr — the success hc-ping for borg still fires. To get
+# a separate alert channel for the offsite leg, add a second Healthchecks check and
+# ping it from this block.
+#
+# Ransomware-resistance: --backup-dir moves any deleted/replaced segment into
+# a timestamped folder under .trash/ on HiDrive instead of erasing it. HiDrive
+# itself also keeps a recycle bin reachable from the web UI.
+if [ -f /root/.config/rclone/rclone.conf ]; then
+    echo ""
+    echo "[Offsite] Mirroring repo to HiDrive..."
+    if rclone sync \
+        "${BORG_REPO}" hidrive:/backup/borg-repo \
+        --backup-dir "hidrive:/backup/.trash/$(date +%Y-%m-%d_%H%M%S)" \
+        --stats 30s --stats-one-line \
+        --transfers 4 \
+        --retries 3 --low-level-retries 10 \
+        --timeout 5m
+    then
+        echo "[Offsite] OK"
+    else
+        echo "WARN: rclone sync to HiDrive failed (rc=$?). Local backup is still good." >&2
+    fi
+else
+    echo ""
+    echo "[Offsite] Skipped — /root/.config/rclone/rclone.conf not present."
+fi
+
 echo ""
 echo "=============================================="
 echo "Borg Backup Complete"

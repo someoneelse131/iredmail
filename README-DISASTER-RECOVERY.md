@@ -6,6 +6,7 @@ Worst case: the VPS is gone, you have a fresh server and a copy of the Borg repo
 
 - A new VPS (Docker-capable, reasonable specs: 4 GB RAM, 20+ GB disk).
 - A copy of the Borg repo directory (`data/borg-repo/`). Source: offsite mirror, second backup disk, etc.
+  - Primary offsite as of 2026-05-01: Ionos HiDrive WebDAV. Sub-user `hidrive-kirby-backup`, password in 1Password under "iRedMail HiDrive backup". Endpoint `https://webdav.hidrive.ionos.com/`.
 - The Borg passphrase. Either on paper, in a password manager, or inside the recovered `.env` (if you also recovered that).
 - DNS access for the domain so MX/A/SPF/DKIM/DMARC keep pointing at the new server's IP.
 
@@ -20,11 +21,18 @@ apt-get install -y docker.io docker-compose-v2 git borgbackup rsync
 git clone <your-repo-url> /opt/iredmail
 cd /opt/iredmail
 
-# 3) Get the Borg repo into place
-#    Option A: rsync from your offsite host
+# 3) Get the Borg repo into place. Pick whichever applies:
+#    Option A: from HiDrive (Ionos) — the active offsite as of 2026-05-01.
+#       You need the WebDAV creds (sub-user "hidrive-kirby-backup", password
+#       in 1Password). Recreate ~/.config/rclone/rclone.conf with the same
+#       [hidrive] block, then:
+apt-get install -y rclone
+mkdir -p /opt/iredmail/data/borg-repo
+rclone copy hidrive:/backup/borg-repo /opt/iredmail/data/borg-repo --transfers 4 --progress
+#    Option B: rsync from another offsite host
 rsync -aP user@offsite:/path/to/borg-repo/ /opt/iredmail/data/borg-repo/
-#    Option B: scp / restore from cold storage
-#    Option C: if you only have a remote borg URL, point restore-borg.sh at it directly
+#    Option C: scp / restore from cold storage
+#    Option D: if you only have a remote borg URL, point restore-borg.sh at it directly
 
 # 4) Restore .env from the most recent archive (you need .env's MYSQL_ROOT_PASSWORD
 #    BEFORE the full restore, because the DB import runs against the live container).
