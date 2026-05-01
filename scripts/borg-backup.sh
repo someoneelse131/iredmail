@@ -32,6 +32,7 @@ BORG_REPO="${PROJECT_DIR}/data/borg-repo"
 DB_DUMP_DIR="${PROJECT_DIR}/data/db-dumps"
 DB_DUMP_FILE="${DB_DUMP_DIR}/all_databases.sql"
 ARCHIVE_NAME="mail-$(date +%Y-%m-%d_%H%M%S)"
+DB_DUMP_TMP=""
 
 # Read BORG_PASSPHRASE and MYSQL_ROOT_PASSWORD from .env without `source`
 # (avoids shell-quoting surprises with random secrets).
@@ -47,6 +48,8 @@ get_env() {
 
 BORG_PASSPHRASE="$(get_env BORG_PASSPHRASE)"
 MYSQL_ROOT_PASSWORD="$(get_env MYSQL_ROOT_PASSWORD)"
+# Optional: dead-man's-switch via Healthchecks.io. If not set, ping is skipped.
+HEALTHCHECKS_URL="$(get_env HEALTHCHECKS_URL 2>/dev/null || true)"
 
 if [ -z "${BORG_PASSPHRASE}" ]; then
     echo "ERROR: BORG_PASSPHRASE not set in .env. See header of this script." >&2
@@ -58,6 +61,32 @@ if [ -z "${MYSQL_ROOT_PASSWORD}" ]; then
 fi
 
 export BORG_REPO BORG_PASSPHRASE
+
+hc_ping() {
+    [ -z "${HEALTHCHECKS_URL}" ] && return 0
+    local suffix="${1:-}"
+    local body="${2:-}"
+    local args=(-fsS -m 10 --retry 3)
+    [ -n "$body" ] && args+=(--data-binary "$body")
+    curl "${args[@]}" "${HEALTHCHECKS_URL}${suffix}" >/dev/null \
+        || echo "WARN: hc-ping ${suffix:-/} failed" >&2
+}
+
+on_exit() {
+    local rc=$?
+    [ -n "${DB_DUMP_TMP}" ] && rm -f "${DB_DUMP_TMP}"
+    if [ $rc -eq 0 ]; then
+        local repo_size
+        repo_size="$(du -sh "${BORG_REPO}" 2>/dev/null | cut -f1 || echo '?')"
+        hc_ping "" "OK — archive ${ARCHIVE_NAME}, repo ${repo_size}"
+    else
+        hc_ping "/fail" "FAIL — exit ${rc}. Tail of /opt/iredmail/data/logs/borg-backup.log:
+$(tail -n 30 /opt/iredmail/data/logs/borg-backup.log 2>/dev/null || echo '(log unavailable)')"
+    fi
+}
+trap on_exit EXIT
+
+hc_ping "/start"
 
 echo "=============================================="
 echo "iRedMail Borg Backup"
@@ -74,7 +103,6 @@ echo "[1/3] Dumping MariaDB..."
 mkdir -p "${DB_DUMP_DIR}"
 chmod 700 "${DB_DUMP_DIR}"
 DB_DUMP_TMP="${DB_DUMP_FILE}.tmp.$$"
-trap 'rm -f "${DB_DUMP_TMP}"' EXIT
 docker exec iredmail-db mysqldump \
     -u root \
     -p"${MYSQL_ROOT_PASSWORD}" \
