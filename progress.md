@@ -372,14 +372,34 @@ Risk = probability × blast radius. Active threats first, recovery scenarios sec
 - **Deferred to P3**: `[iredadmin]` jail (kein log file — uwsgi loggt zu stdout, müsste `logto =` in config setzen). `[recidive]` jail (Container schreibt kein `fail2ban.log`, müsste `loglevel`+`logtarget` in fail2ban.local setzen).
 - **Side-finding (P3 ticket)**: SOGo flooded log mit `SOGoCache: SERVER HAS FAILED AND IS DISABLED UNTIL TIMED RETRY` — memcached-Verbindung kaputt. Trifft jeden CalDAV-Request. Eigenes Issue.
 
-#### P1-B: Spam-stack einbauen (löst Spam-Frage + 3 Security-Lücken)
-- Wire amavis into postfix: `content_filter = smtp-amavis:[127.0.0.1]:10024` + reinjection on 10025 (master.cf). Source: `rootfs/etc/s6-overlay/scripts/init.sh` postfix gen block ~line 290–360.
-- Add ClamAV scanning, SpamAssassin scoring.
-- Configure DKIM signing in amavis (selector must be `dkim` to match published DNS — `dig dkim._domainkey.<domain>` answers; `default._domainkey` does not).
-- Dovecot `imap_sieve` plugin + global learn-sieves: move-to-Junk → `sa-learn --spam`, move-out → `sa-learn --ham`.
-- Roundcube `markasjunk` plugin → adds explicit "Spam" button.
-- This is what the user asked about ("Spam melden"). Currently there is **no** spam filtering and **no** spam learning — Junk folder is just a folder.
-- **Outbound DKIM-signing** of all 4 hosted domains starts working only AFTER amavis is wired in. Right now: keys published in DNS but no opendkim process and amavis not in path → outbound mail unsigned → DMARC failures at strict recipients.
+#### P1-B: Spam-stack einbauen — PHASE 1 DONE 2026-05-01
+- ✅ amavis als content_filter (10024) + Re-injection (10025) verdrahtet (init.sh `configure_postfix`).
+- ✅ Zweiter amavis-Port (10026) mit `ORIGINATING` Policy für outbound DKIM-Signing. submission/smtps routen via `content_filter=smtp-amavis-orig:[127.0.0.1]:10026`.
+- ✅ ClamAV-Permission-Bug behoben: clamav-User in amavis-Group + clamav s6-Service hängt jetzt von init ab (race-fix `rootfs/etc/s6-overlay/s6-rc.d/clamav/dependencies.d/init`).
+- ✅ SpamAssassin scoring aktiv: `tag_level_deflt=-999, tag2=5.0, kill=9.0`. Subject prefix `[SPAM] `. `D_PASS` statt `D_DISCARD` damit Mail nicht stillschweigend gelöscht wird.
+- ✅ DKIM-Signing aktiviert für alle 4 Domains (`dkim_key()` aus /var/lib/dkim/*.pem). `amavisd-new showkeys` listet alle 4. Selector=`dkim` matcht DNS.
+- ✅ Sieve `before.d/spam-to-junk.sieve`: `X-Spam-Flag: YES` → `fileinto Junk + setflag \\Seen`. Pre-compiled (sievec) im Image.
+- ✅ Critical fix: `@local_domains_acl` enthält jetzt alle gehosteten Domains (vorher nur `mail.kirby.rocks` aus `/etc/mailname`). Vorher → policy bank `RelayedOpenRelay` → no spam-tagging. Jetzt → `RelayedTaggedInbound` → tagging on.
+- ✅ E2E Test (extern via python smtplib → :25):
+  - clean (score 3.524) → INBOX, X-Spam-Flag: NO
+  - GTUBE (score 1003.524) → Junk, X-Spam-Flag: YES, Subject: `[SPAM] ...`
+  - EICAR → `Blocked INFECTED (Eicar-Signature) {DiscardedInbound,Quarantined}`. ClamAV läuft sauber.
+- ✅ Inbound DKIM-Verifikation funktioniert: realer simplelogin.co Mail kam mit `dkim_sd=dkim:simplelogin.co` durch.
+
+**Phase 1 — User-Verifikation für outbound DKIM nötig:**
+Eine Mail aus Thunderbird (oder einem anderen Client) via 587/465 → external (z.B. Gmail-Eigenkonto). Im Empfänger-Header muss stehen:
+```
+DKIM-Signature: v=1; a=rsa-sha256; ... d=chiaruzzi.ch; s=dkim; ...
+Authentication-Results: ... dkim=pass header.d=chiaruzzi.ch
+```
+Falls nicht: 50-user `dkim_signature_options_bysender_maps` per-domain anpassen.
+
+**DEFERRED zu Phase 2 (separate Session):**
+- imap_sieve plugin + sa-learn loop (move to Junk → `sa-learn --spam`, move out → `sa-learn --ham`). User kann derzeit Junk per Hand befüllen, aber das System lernt nicht.
+- Roundcube markasjunk Plugin (sichtbarer "Spam"-Button).
+- System sendmail (cron, postmaster auto-replies) DKIM-signing — derzeit unsigniert, da local sendmail über 10024 läuft, nicht 10026. Niedrige Priorität.
+
+**Side-finding (P3):** SOGo memcached-Verbindung ist kaputt (`SERVER HAS FAILED — DISABLED UNTIL TIMED RETRY` flutet sogo.log bei jedem CalDAV-Request). Eigenes Issue.
 
 #### P1-C: Roundcube CVEs + source exposure
 - Pin Roundcube 1.6.10+ in Dockerfile (current 1.6.6, Jan 2024, has CVE-2024-37383 / 42008 / 42009 / 42010).
