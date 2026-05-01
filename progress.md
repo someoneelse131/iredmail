@@ -478,3 +478,85 @@ sudo visudo -f /etc/sudoers.d/90-cloud-init-users
 ```
 5. Pick the next block (P1-A fail2ban Webmail jails for a quick win, or P1-B Spam-stack for the user's spam question).
 
+---
+
+# 2026-05-01 — Session log + handover
+
+## Done in this session
+
+### C7 alerting — DONE
+- Healthchecks.io UUID `140a8ccf-c7ff-4132-ba33-94513ec13ccb`. `scripts/borg-backup.sh` patched: `/start` ping at top, success ping with archive name + repo size at bottom, `/fail` ping with last 30 lines of borg log on non-zero exit. URL read from optional `HEALTHCHECKS_URL=` in `.env`. Verified end-to-end (manual run pinged successfully).
+- Telegram channel via the HC bot is the user's job: HC dashboard → Integrations → Telegram → /start `<code>` to `@healthchecks_io_bot`.
+
+### C5 partial — borg key exported
+- `~/Downloads/borg-backup-credentials-2026-05-01.txt` (mode 600) contains BORG_KEY block + passphrase + restore quickref. **User has not yet confirmed save to 1Password + paper.** Once confirmed: `ssh mail sudo shred -u /root/borg-key-export.txt` AND delete the laptop file.
+
+### C6 — redirected, deferred
+- User rejected Hetzner. Plan: rclone with `crypt` wrapper to Google Drive or Ionos HiDrive (WebDAV). Implementation later.
+
+### P1-A — fail2ban tightening — DONE (commit 028aa65)
+- dovecot `findtime=3600 maxretry=3` (was 600/5; brute-force was distributed → 0 bans on 10000 matched lines). roundcube-auth + sogo-auth jails enabled. iredadmin + recidive deferred (no log target). 4 jails active in container fail2ban.
+- Side-finding documented as P3: SOGo memcached connection broken (`SERVER HAS FAILED — DISABLED UNTIL TIMED RETRY` floods sogo.log).
+
+### P1-B Phase 1 — spam stack — DONE (commit 6abd743)
+- amavis wired in as `content_filter` on 10024 (inbound) + 10026 (originating, signs DKIM). Re-injection on 10025. submission/smtps now route to 10026 via `-o content_filter=...`.
+- New `configure_amavis()` in init.sh writes `/etc/amavis/conf.d/50-user`:
+  - extends `@local_domains_acl` to all 4 hosted domains (was just `$mydomain` from /etc/mailname → caused `RelayedOpenRelay` policy → no spam tagging),
+  - $final_spam_destiny = D_PASS, SA scoring on,
+  - dkim_key() per /var/lib/dkim/*.pem, ORIGINATING policy bank with originating=1.
+  - usermod clamav into amavis group + tmp dir 750 (clamd was failing with "Permission denied" reading amavis tmp parts).
+  - sievec pre-compile (LMTP runs as vmail, can't write to /etc/dovecot/sieve/before.d/).
+- New rootfs files:
+  - `etc/dovecot/conf.d/91-iredmail-sieve.conf` (LMTP sieve plugin + sieve_before),
+  - `etc/dovecot/sieve/before.d/spam-to-junk.sieve` (X-Spam-Flag:YES → fileinto Junk),
+  - `etc/s6-overlay/s6-rc.d/clamav/dependencies.d/init` (so clamd starts AFTER usermod runs).
+- Verified end-to-end via python smtplib → port 25:
+  - clean (score 3.5) → INBOX, X-Spam-Flag: NO
+  - GTUBE (score 1003) → Junk via sieve, [SPAM] subject prefix
+  - EICAR → `Blocked INFECTED (Eicar-Signature) {DiscardedInbound,Quarantined}`
+  - inbound DKIM-verify works (live simplelogin.co mail came through with `dkim_sd=dkim:simplelogin.co`).
+- Outbound DKIM signing: verified via authenticated submission to check-auth@verifier.port25.com — signature added (`d=kirby.rocks; s=dkim; c=relaxed/simple`).
+
+### Outstanding from P1-B Phase 1: kirby.rocks DKIM DNS mismatch
+- Server's `/var/lib/dkim/kirby.rocks.pem` doesn't correspond to the `dkim._domainkey.kirby.rocks` TXT record published in DNS. Other 3 domains (chiaruzzi.ch, maisonsoave.ch, purfacted.com) are correctly aligned.
+- User updated 1&1 DNS on 2026-05-01 ~16:22. Authoritative NS (`ns1113.ui-dns.org` etc.) confirmed serving the new value (matches server). **OLD record had TTL 3600** so global resolvers may still cache the old wrong key for up to 1 hour.
+- Correct value (also in `~/Downloads/dkim-dns-update-kirby.rocks-2026-05-01.txt`):
+  `v=DKIM1; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkmGi5UFqpODXQFRMfWAPd4Qph/ui5tU849LhZgZmxLS3amkkGlhWUW6A5zZEuOvBfBVcKQ37/WMG40JzpZnhvhqA2jxd6f1nxpbW70bcTYtJl9wIUj6J3dE2xRMxyW7Jze0GvbkZQM5qH1xtxu9nZRpqwwdrkE7MlhjDktm13QNiZhuwT0uxk1WgjyjFHB4eZL9KgASnHPPONpAoZX0jCJfIh+5CmBfJs4DO79HC6V2XaUjHyWRyJ87CelCW50/oh2dHRZ5yfbeqqZ/v4zQMoYRuw+O+ZYKc8RYsz0E3cMAH5mga4r5ZhtCy+KOu4Z5o5B7SvekS1cuYNbXl8A0fUwIDAQAB`
+- **First action in next session:** wait for old TTL to expire (≥1 h after change) then re-run verifier test:
+  ```
+  python3 - <<'PY'
+  import smtplib, ssl
+  ctx = ssl.create_default_context()
+  s = smtplib.SMTP("mail.kirby.rocks", 587, timeout=20)
+  s.ehlo("test.local"); s.starttls(context=ctx); s.ehlo("test.local")
+  s.login("postmaster@kirby.rocks", "<FIRST_MAIL_DOMAIN_ADMIN_PASSWORD from .env>")
+  s.sendmail("postmaster@kirby.rocks", ["check-auth@verifier.port25.com"],
+             "From: postmaster@kirby.rocks\r\nTo: check-auth@verifier.port25.com\r\n"
+             "Subject: kirby.rocks DKIM final\r\nDate: ...\r\n\r\nbody\r\n")
+  s.quit()
+  PY
+  # Then read the report from postmaster@kirby.rocks INBOX:
+  ssh mail "sudo docker exec iredmail-core doveadm fetch -u postmaster@kirby.rocks text mailbox INBOX uid <highest>" | grep -A4 "DKIM check"
+  # Expected: "DKIM check: pass"
+  ```
+
+## Open / pending order
+
+1. **C5 finalize** — user confirms save → claude shreds `~/Downloads/borg-backup-credentials-*.txt` + `/root/borg-key-export.txt` on server.
+2. **kirby.rocks DKIM re-verify** (above) — after TTL expires.
+3. **C6 offsite** — rclone+crypt → Google Drive or Ionos HiDrive. User to pick destination.
+4. **P1-B Phase 2** — imap_sieve plugin + sa-learn pipe scripts (move-to-Junk → `sa-learn --spam`, move-out → `sa-learn --ham`) + Roundcube markasjunk plugin for the visible "Spam" button. Also document/handle that local sendmail (cron, postmaster auto-replies) is currently NOT DKIM-signed (it goes through 10024 inbound port).
+5. **P1-C** — Roundcube CVE pin (1.6.10+) + nginx deny rules for `/mail/composer.*`, `/mail/SQL/`, `/mail/installer/`, etc.
+6. **P1-D** — Postfix hardening (smtpd_tls_auth_only=yes, TLSv1.2 floors, helo restrictions, …).
+7. **P1-E** — TLS + DKIM mounts read-only in docker-compose.yml.
+8. P3 backlog (separate file later): SOGo memcached, recidive jail, iredadmin jail, H1–H8, etc.
+
+## How to resume in a fresh session
+1. Read this 2026-05-01 section + the 2026-04-30 prioritized plan above.
+2. State-check:
+   ```
+   ssh mail 'sudo docker exec iredmail-fail2ban fail2ban-client status; echo; sudo ls -la /root/borg-key-export.txt 2>&1; echo; sudo docker exec iredmail-core ss -ltn | grep -E "10024|10025|10026"'
+   ```
+3. Verify kirby.rocks DKIM after the 1h TTL: `dig +short txt dkim._domainkey.kirby.rocks` — must START with `v=DKIM1; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkmGi5UFqpODXQFRMfWAP`.
+4. Continue with whichever pending item the user picks.
+
