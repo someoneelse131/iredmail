@@ -25,28 +25,34 @@ maxretry = 3
 # =============================================================================
 # Dovecot Authentication
 # =============================================================================
+# Tighter findtime/maxretry than the [DEFAULT] block: IMAP brute-force tends to
+# be distributed (each IP only attempts 1-2 logins before rotating), so a 10-min
+# window with maxretry=5 catches almost nothing. fail2ban-regex confirmed the
+# filter matches 10000+ lines but no single IP reached threshold; postfix-sasl
+# numbers (8500+ bans) prove the bans work fine for less-distributed attacks.
 [dovecot]
 enabled = true
 filter = dovecot
 action = iptables-multiport[name=dovecot, port="110,143,993,995", protocol=tcp, chain=DOCKER-USER]
 logpath = /var/log/iredmail/dovecot.log
-maxretry = 5
+findtime = 3600
+maxretry = 3
 
 # =============================================================================
-# Roundcube Webmail - Disabled by default (enable after setup)
+# Roundcube Webmail
 # =============================================================================
 [roundcube-auth]
-enabled = false
+enabled = true
 filter = roundcube-auth
 action = iptables-multiport[name=roundcube, port="80,443", protocol=tcp, chain=DOCKER-USER]
 logpath = /var/log/iredmail/roundcube/errors.log
 maxretry = 5
 
 # =============================================================================
-# SOGo Groupware - Disabled by default (enable after setup)
+# SOGo Groupware (CalDAV/CardDAV/Webmail)
 # =============================================================================
 [sogo-auth]
-enabled = false
+enabled = true
 filter = sogo-auth
 action = iptables-multiport[name=sogo, port="80,443", protocol=tcp, chain=DOCKER-USER]
 logpath = /var/log/iredmail/sogo.log

@@ -364,15 +364,13 @@ Risk = probability × blast radius. Active threats first, recovery scenarios sec
 
 ### P1 — diese Woche (active attack surface, ~1 day)
 
-#### P1-A: Mail-jails ergänzen + dovecot 0-bans untersuchen
-- Enable `[roundcube-auth]` and `[sogo-auth]` in `config/fail2ban/jail.d/iredmail.local` (currently `enabled = false`).
-- Add `[iredadmin]` jail + filter (does not exist yet); log path `/var/log/iredmail/iredadmin.log`.
-- Investigate why dovecot jail has 10029 failed but 0 banned. Hypotheses:
-  - distributed brute-force, no single IP reaches `maxretry=5` in `findtime=600`
-  - filter regex not matching real lines in `dovecot.log`
-  - `chain = DOCKER-USER` works for postfix-sasl but not for the IPv6 path dovecot might be hit on
-- Verify: `tail -1000 /var/log/iredmail/dovecot.log | grep -iE 'auth fail|disconnect.*auth_failed' | awk '{print $NF}' | sort | uniq -c | sort -rn | head` → if same IP shows ≥ 5 within 10 min the filter is broken; if max 2 then it's distributed.
-- Decision needed: keep `findtime=600 maxretry=5` and accept distributed slow-brute, or tighten to `findtime=3600 maxretry=3`.
+#### P1-A: Mail-jails ergänzen + dovecot 0-bans untersuchen — DONE 2026-05-01
+- **Diagnose dovecot 0-bans**: `fail2ban-regex` zeigt 10033/203881 lines matched ✓. Pro-IP-Aggregation: höchste IP nur 2 hits in 5000 lines → **verteilte Brute-Force**, nie Schwellwert. Filter+chain OK; Param zu lax. Postfix-SASL bannt fleißig (8524) weil SMTP-Angriffe weniger verteilt sind.
+- **Fix**: dovecot jail jetzt `findtime=3600, maxretry=3`. Inline-Kommentar im config dokumentiert die Diagnose.
+- **roundcube-auth + sogo-auth aktiviert**. Pfade verifiziert (`/var/log/iredmail/roundcube/errors.log` ✓, `/var/log/iredmail/sogo.log` ✓). Default-Filter `roundcube-auth.conf` matched 2/3 sample-lines (1 PHP-Error legitim ignoriert).
+- **fail2ban-client status**: 4 jails aktiv (`dovecot, postfix-sasl, roundcube-auth, sogo-auth`).
+- **Deferred to P3**: `[iredadmin]` jail (kein log file — uwsgi loggt zu stdout, müsste `logto =` in config setzen). `[recidive]` jail (Container schreibt kein `fail2ban.log`, müsste `loglevel`+`logtarget` in fail2ban.local setzen).
+- **Side-finding (P3 ticket)**: SOGo flooded log mit `SOGoCache: SERVER HAS FAILED AND IS DISABLED UNTIL TIMED RETRY` — memcached-Verbindung kaputt. Trifft jeden CalDAV-Request. Eigenes Issue.
 
 #### P1-B: Spam-stack einbauen (löst Spam-Frage + 3 Security-Lücken)
 - Wire amavis into postfix: `content_filter = smtp-amavis:[127.0.0.1]:10024` + reinjection on 10025 (master.cf). Source: `rootfs/etc/s6-overlay/scripts/init.sh` postfix gen block ~line 290–360.
