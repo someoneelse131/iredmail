@@ -12,7 +12,7 @@ Active log. Pre-2026-05-01 history is in `progress-archive.md` (562-line inciden
 | Backup — offsite | **ACTIVE** (C6 done 2026-05-01). rclone WebDAV → Ionos HiDrive 100 GB (1.36 €/mo). Sub-user `hidrive-kirby-backup`, isolated to its own home, only `/backup/borg-repo/` visible. Mirrors after every borg run. `--backup-dir hidrive:/backup/.trash/<ts>` keeps replaced/deleted segments → ransomware-from-server can't wipe history. Restore: `rclone copy hidrive:/backup/borg-repo /opt/iredmail/data/borg-repo`. |
 | Borg key | In 1Password + paper. Server `/root/borg-key-export.txt` shredded 2026-05-01. |
 | Spam stack | amavis 10024 (inbound) + 10025 (re-injection) + 10026 (ORIGINATING, signs DKIM outbound). SA scoring `tag2=5.0 kill=9.0`, `D_PASS`. ClamAV runs. Sieve `before.d/spam-to-junk.sieve` files `X-Spam-Flag:YES` → Junk. DKIM signing for all 4 domains; verifier.port25.com confirms `dkim=pass spf=pass iprev=pass` for kirby.rocks (final domain verified 2026-05-01 16:50 after DNS update). |
-| fail2ban (container) | 4 jails: dovecot (`findtime=3600 maxretry=3` for distributed brute-force), postfix-sasl (8500+ bans), roundcube-auth, sogo-auth. iredadmin + recidive deferred (no logfile target yet). |
+| fail2ban (container) | 4 jails active: dovecot (`findtime=3600 maxretry=3` for distributed brute-force), postfix-sasl (8500+ bans), roundcube-auth, sogo-auth. **2 jails still missing: iRedAdmin web panel (= top of pick-next), recidive cross-jail repeater.** |
 | fail2ban (host) | sshd jail. 1428+ bans. |
 | SSH | Password auth disabled (cloud-init drop-in renamed to `.disabled`). |
 | Permissions | `.env` 600. `data/backup/*.tar.gz` 600. All `privkey*.pem` 600. UID alignment vmail 2000:2000 host↔container. |
@@ -20,10 +20,19 @@ Active log. Pre-2026-05-01 history is in `progress-archive.md` (562-line inciden
 
 ## Open — pick next
 
-In risk × effort order. Pull from top.
+In risk × effort order. Pull from top. **Top two were promoted from P3 backlog on 2026-05-01 after user identified the gaps: brute-force closure on iRedAdmin and cross-jail repeat-offenders.**
 
-1. **kirby.rocks DKIM verifier** — DONE 2026-05-01 16:50 (pass).
-2. **C6 offsite backup** — DONE 2026-05-01 (HiDrive WebDAV via rclone, byte-identical mirror after every borg run, `--backup-dir` ransomware-trash on remote).
+1. **iRedAdmin fail2ban jail** — only auth surface NOT currently bannable. uwsgi currently logs to stdout (which goes into the iredmail-core container log via s6-overlay). Two viable paths:
+   - **(a) own logfile**: edit iRedAdmin's uwsgi.ini to add `logto = /var/log/iredadmin/auth.log` and `disable-logging = false`, then write `filter.d/iredadmin.conf` matching iRedAdmin's auth-fail line format and `jail.local [iredadmin] logpath = /var/log/iredadmin/auth.log`. Cleaner.
+   - **(b) tail container log**: point a fail2ban jail at the existing container-side log (`/var/log/iredadmin/iredadmin.log` if it exists, else docker logs via journald). Hackier but no app config touched.
+   - Verify failregex by running `fail2ban-regex` against captured failed-login lines. Look at iRedAdmin source `libs/iredutils.py` for the exact log line. Confirm 4 jails → 5 in `fail2ban-client status`.
+
+2. **recidive jail (cross-jail repeat-offender)** — currently bans inside one jail expire and the same IP comes back from a different jail. Recidive watches `fail2ban.log` and bans IPs that get banned ≥3× across all jails for a long window (e.g. 1 week). Container's fail2ban currently doesn't write `fail2ban.log` — need:
+   - `loglevel = INFO` and `logtarget = /var/log/fail2ban/fail2ban.log` in `fail2ban.local` of the container.
+   - Mount that log volume so it persists.
+   - Add `[recidive] enabled=true bantime=1w findtime=1d maxretry=3 logpath=/var/log/fail2ban/fail2ban.log`.
+   - Verify by manually banning an IP three times in different jails → recidive should pick it up.
+
 3. **P1-B Phase 2 — learning spam filter** — add imap_sieve plugin + sa-learn pipe scripts (Junk move → `sa-learn --spam`, out-of-Junk → `sa-learn --ham`). Roundcube `markasjunk` plugin for visible Spam button. Note: cron/postmaster local sendmail goes through 10024 → unsigned. Low priority.
 4. **P1-C Roundcube CVE pin** — bump from 1.6.6 → 1.6.10+ in Dockerfile (CVE-2024-37383 / 42008 / 42009 / 42010). Add nginx `deny` for `/mail/composer.*`, `/mail/SQL/`, `/mail/installer/`, `/mail/INSTALL`, `/mail/UPGRADING`, `/mail/SECURITY.md`, `/mail/CHANGELOG.md`, `/mail/vendor/`, `/mail/bin/`. Dockerfile `RUN rm -rf /var/www/roundcube/installer`.
 5. **P1-D Postfix hardening** — see "P1-D values" below for the full list.
