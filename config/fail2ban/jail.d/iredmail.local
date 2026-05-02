@@ -67,3 +67,20 @@ filter = nginx-http-auth
 action = iptables-multiport[name=nginx, port="80,443", protocol=tcp, chain=DOCKER-USER]
 logpath = /var/log/iredmail/nginx-error.log
 maxretry = 5
+
+# =============================================================================
+# iRedAdmin Web Panel
+# =============================================================================
+# Catches brute-force on the iRedAdmin admin login. The SQL backend doesn't
+# log failed logins by default — we patch controllers/sql/basic.py in the
+# Dockerfile to emit a logger.warning that rsyslog routes via facility
+# local5 to its own log file in the shared /var/log/iredmail volume.
+# Note Uptime-Kuma at 212.227.103.144 polls /iredadmin every minute (visible
+# in nginx access.log) but only triggers GETs, not failed POSTs, so the
+# filter regex won't match monitor traffic.
+[iredadmin]
+enabled = true
+filter = iredadmin
+action = iptables-multiport[name=iredadmin, port="80,443", protocol=tcp, chain=DOCKER-USER]
+logpath = /var/log/iredmail/iredadmin.log
+maxretry = 5

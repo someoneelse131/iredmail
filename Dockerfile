@@ -155,7 +155,20 @@ RUN mkdir -p /var/www/iredadmin && \
     curl -fsSL https://github.com/iredmail/iRedAdmin/archive/refs/tags/${IREDADMIN_VERSION}.tar.gz | \
     tar -xz -C /var/www/iredadmin --strip-components=1 && \
     chown -R www-data:www-data /var/www/iredadmin && \
-    chmod -R 755 /var/www/iredadmin
+    chmod -R 755 /var/www/iredadmin && \
+    # Patch SQL backend to log failed logins. iRedAdmin's SQL backend silently
+    # redirects to /login?msg=INVALID_CREDENTIALS without logging — only the
+    # LDAP backend has the logger.warning (controllers/ldap/basic.py). Without
+    # this patch, the [iredadmin] fail2ban jail has no signal to ban on.
+    # Mirrors the LDAP path's behavior. Build fails loudly if upstream changes
+    # the lines we sed into.
+    sed -i 's|^from libs.logger import log_activity$|from libs.logger import logger, log_activity|' \
+        /var/www/iredadmin/controllers/sql/basic.py && \
+    sed -i "/raise web.seeother('\\/login?msg=INVALID_CREDENTIALS')/i\\            logger.warning(\"Web login failed: client_address={}, username={}\".format(web.ctx.ip, username))" \
+        /var/www/iredadmin/controllers/sql/basic.py && \
+    grep -q "^from libs.logger import logger, log_activity$" /var/www/iredadmin/controllers/sql/basic.py && \
+    grep -q 'Web login failed: client_address' /var/www/iredadmin/controllers/sql/basic.py && \
+    python3 -m py_compile /var/www/iredadmin/controllers/sql/basic.py
 
 # =============================================================================
 # Install Python Packages
