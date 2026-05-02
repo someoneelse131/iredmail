@@ -84,3 +84,22 @@ filter = iredadmin
 action = iptables-multiport[name=iredadmin, port="80,443", protocol=tcp, chain=DOCKER-USER]
 logpath = /var/log/iredmail/iredadmin.log
 maxretry = 5
+
+# =============================================================================
+# Recidive (Cross-jail Repeat Offender)
+# =============================================================================
+# Watches fail2ban's own log and bans IPs that have been banned by 3+ other
+# jails within 1 day, for a full week, on ALL ports. Closes the loophole
+# where a per-jail ban expires and the same IP rotates to a different jail
+# (e.g. starts on postfix-sasl, gets unbanned at 1h, then hits dovecot, etc).
+# Requires F2B_LOG_TARGET=/var/log/fail2ban/fail2ban.log in docker-compose
+# (default STDOUT is unreadable by fail2ban itself). Persistent volume
+# data/fail2ban-logs ensures Ban history survives container restarts.
+[recidive]
+enabled = true
+filter = recidive
+action = iptables-allports[name=recidive, chain=DOCKER-USER]
+logpath = /var/log/fail2ban/fail2ban.log
+bantime = 1w
+findtime = 1d
+maxretry = 3

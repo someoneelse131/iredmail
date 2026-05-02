@@ -109,9 +109,13 @@ services:
     volumes:
       - ./data/logs:/var/log/iredmail:ro
       - ./config/fail2ban:/data
+      # Persistent fail2ban.log so [recidive] jail can re-read it across
+      # container restarts. Default F2B_LOG_TARGET=STDOUT only gives docker
+      # logs — neither persists nor is readable by fail2ban itself.
+      - ./data/fail2ban-logs:/var/log/fail2ban
     environment:
       TZ: ${TZ:-UTC}
-      F2B_LOG_TARGET: STDOUT
+      F2B_LOG_TARGET: /var/log/fail2ban/fail2ban.log
       F2B_LOG_LEVEL: INFO
       F2B_DB_PURGE_AGE: 14d
     depends_on:
