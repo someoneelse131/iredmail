@@ -451,9 +451,22 @@ docker exec iredmail-core doveadm mailbox list -u user@example.com
 # Look for .EXPUNGED/* mailboxes
 ```
 
-### Offsite backup (planned)
+### Offsite mirror (HiDrive WebDAV)
 
-The Borg repo is currently local-only. The plan is to mirror it offsite to a Hetzner Storage Box (or similar SSH-reachable target) via `borg create` to a remote URL. The legacy `scripts/offsite-backup.sh` (scp-based, against a Synology NAS) is currently disabled (`/etc/cron.d/iredmail-offsite-backup.disabled`).
+Active since 2026-05-01. After every successful local Borg run, `scripts/borg-backup.sh` mirrors the repo to Ionos HiDrive via WebDAV/rclone. Current layout:
+
+| Remote path | Contents |
+|---|---|
+| `hidrive:/backup/iredmail/data/` | Byte-identical mirror of `data/borg-repo/` |
+| `hidrive:/backup/iredmail/.trash/<YYYY-MM-DD_HHMMSS>/` | Segments removed by prune/compact, kept via rclone `--backup-dir` for ransomware-resistance |
+
+The HiDrive sub-user (`hidrive-kirby-backup`) is scope-locked to `/backup/` — writes anywhere else return 403, so a compromised mailserver can only touch the backup tree, not the rest of the HiDrive account.
+
+`/start` + success + `/fail` pings go to a **dedicated** Healthchecks check (`HEALTHCHECKS_OFFSITE_URL` in `.env`), separate from the local-borg check (`HEALTHCHECKS_URL`). A silent HiDrive outage therefore alerts even when the local backup succeeded.
+
+Setting offsite up on a fresh server: see [`README-DISASTER-RECOVERY.md`](README-DISASTER-RECOVERY.md) — same flow.
+
+The legacy `scripts/offsite-backup.sh` (scp-based, Synology NAS) is permanently disabled (`/etc/cron.d/iredmail-offsite-backup.disabled`).
 
 ## Customization
 

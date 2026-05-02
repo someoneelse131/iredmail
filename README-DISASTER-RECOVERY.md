@@ -23,10 +23,25 @@ cd /opt/iredmail
 
 # 3) Get the Borg repo into place. Pick whichever applies:
 #    Option A: from HiDrive (Ionos) — the active offsite as of 2026-05-01.
-#       You need the WebDAV creds (sub-user "hidrive-kirby-backup", password
-#       in 1Password). Recreate ~/.config/rclone/rclone.conf with the same
-#       [hidrive] block, then:
+#       Sub-user "hidrive-kirby-backup" credentials are in 1Password
+#       under "iRedMail HiDrive backup" (also: paper copy in safe).
+#       Recreate /root/.config/rclone/rclone.conf as below, then sync.
 apt-get install -y rclone
+install -d -m 700 /root/.config/rclone
+cat > /root/.config/rclone/rclone.conf <<'EOF'
+[hidrive]
+type = webdav
+url = https://webdav.hidrive.ionos.com/
+vendor = other
+user = hidrive-kirby-backup
+pass = REPLACE_WITH_OBSCURED_PASSWORD
+EOF
+chmod 600 /root/.config/rclone/rclone.conf
+# The "pass" value must be the OBSCURED form of the plaintext password.
+# Generate it with:  rclone obscure '<plaintext-from-1Password>'
+# Verify the remote is reachable (should list "iredmail/" only):
+rclone lsd hidrive:/backup
+# Now pull the repo into place:
 mkdir -p /opt/iredmail/data/borg-repo
 rclone copy hidrive:/backup/iredmail/data /opt/iredmail/data/borg-repo --transfers 4 --progress
 #    Option B: rsync from another offsite host
