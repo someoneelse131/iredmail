@@ -22,10 +22,62 @@ Active log. Pre-2026-05-01 history is in `progress-archive.md` (562-line inciden
 
 In risk × effort order. Pull from top. **Top two were promoted from P3 backlog on 2026-05-01 after user identified the gaps: brute-force closure on iRedAdmin and cross-jail repeat-offenders.**
 
-1. **iRedAdmin fail2ban jail** — only auth surface NOT currently bannable. uwsgi currently logs to stdout (which goes into the iredmail-core container log via s6-overlay). Two viable paths:
-   - **(a) own logfile**: edit iRedAdmin's uwsgi.ini to add `logto = /var/log/iredadmin/auth.log` and `disable-logging = false`, then write `filter.d/iredadmin.conf` matching iRedAdmin's auth-fail line format and `jail.local [iredadmin] logpath = /var/log/iredadmin/auth.log`. Cleaner.
-   - **(b) tail container log**: point a fail2ban jail at the existing container-side log (`/var/log/iredadmin/iredadmin.log` if it exists, else docker logs via journald). Hackier but no app config touched.
-   - Verify failregex by running `fail2ban-regex` against captured failed-login lines. Look at iRedAdmin source `libs/iredutils.py` for the exact log line. Confirm 4 jails → 5 in `fail2ban-client status`.
+1. **iRedAdmin fail2ban jail** — only auth surface NOT currently bannable. **Plan finalised 2026-05-02 after reconnaissance**:
+
+   *Key finding that invalidated the older plan:* the LDAP backend's `controllers/ldap/basic.py:73` emits `logger.warning("Web login failed: client_address={}, username={}".format(web.ctx.ip, username))`, but **the active SQL backend's `controllers/sql/basic.py:74` does NOT** — it just `raise web.seeother('/login?msg=INVALID_CREDENTIALS')`. Triggered a real failed POST and confirmed: zero log line emitted. nginx access.log shows the POST line but its default `combined` format omits `$sent_http_location`, so the redirect target isn't visible there either. → no usable signal exists today.
+
+   **Path forward (c): patch iRedAdmin SQL controller to emit the same warning the LDAP path emits, route iRedAdmin's syslog to a dedicated file in the shared `/var/log/iredmail/` volume, then standard filter+jail.**
+
+   - **Dockerfile change** — after the iRedAdmin tarball extract block (`Dockerfile:154-158`, `RUN curl … | tar -xz -C /var/www/iredadmin …`), add a sed step in the same RUN to insert one line before the `INVALID_CREDENTIALS` redirect:
+     ```
+     sed -i "/raise web.seeother('\/login?msg=INVALID_CREDENTIALS')/i\\            logger.warning(\"Web login failed: client_address={}, username={}\".format(web.ctx.ip, username))" \
+         /var/www/iredadmin/controllers/sql/basic.py
+     ```
+     `web` and `logger` are already in scope in that file (it uses `web.input`/`web.seeother`, and imports `logger` via `from libs.logger import logger` — verify before sed). Indent must be 12 spaces (matches existing line).
+
+   - **rsyslog routing** — append to `rootfs/etc/rsyslog.d/50-iredmail.conf`:
+     ```
+     # Route iRedAdmin (program name "iredadmin", local5 facility) to its own
+     # file in the shared volume, so the fail2ban container can read it.
+     :programname, isequal, "iredadmin"   /var/log/iredmail/iredadmin.log
+     & stop
+     ```
+     fail2ban already mounts `/opt/iredmail/data/logs` → `/var/log/iredmail` RO (see `docker-compose.yml:110`).
+
+   - **New filter** `config/fail2ban/filter.d/iredadmin.conf`:
+     ```
+     [Definition]
+     failregex = ^.*iredadmin Web login failed: client_address=<HOST>, username=
+     ignoreregex =
+     ```
+     The `iredadmin` program-name prefix is rsyslog's, not iRedAdmin's — set by `logger = logging.getLogger("iredadmin")` in `/var/www/iredadmin/libs/logger.py`.
+
+   - **Append to `config/fail2ban/jail.d/iredmail.local`**:
+     ```
+     [iredadmin]
+     enabled = true
+     filter = iredadmin
+     action = iptables-multiport[name=iredadmin, port="80,443", protocol=tcp, chain=DOCKER-USER]
+     logpath = /var/log/iredmail/iredadmin.log
+     maxretry = 5
+     ```
+
+   - **Apply on running server (without rebuild)** so we can verify before committing the Dockerfile change:
+     1. `docker exec iredmail-core sed -i …` (same sed as above)
+     2. `docker exec iredmail-core sh -c "echo … >> /etc/rsyslog.d/50-iredmail.conf && pkill -HUP rsyslogd"`
+     3. `touch /opt/iredmail/data/logs/iredadmin.log; chown 102:106 …` (rsyslog runs as syslog:adm in this image — check uid)
+     4. Drop the new filter + jail snippet into `/opt/iredmail/config/fail2ban/`
+     5. `docker exec iredmail-fail2ban fail2ban-client reload`
+
+   - **Verify**:
+     - Trigger a failed login: `curl -sk -X POST https://mail.kirby.rocks/iredadmin/login -d "username=postmaster@kirby.rocks&password=wrong"` — should land in `/var/log/iredmail/iredadmin.log` as `… mail iredadmin iredadmin Web login failed: client_address=<IP>, username=postmaster@kirby.rocks (…)`
+     - `fail2ban-regex /var/log/iredmail/iredadmin.log /etc/fail2ban/filter.d/iredadmin.conf` — should match.
+     - 5 fails in `findtime` from one IP → `fail2ban-client status iredadmin` lists banned IP.
+     - `fail2ban-client status` now shows **5 jails** (was 4: dovecot, postfix-sasl, roundcube-auth, sogo-auth).
+
+   - **Then commit**: Dockerfile sed step + rootfs/etc/rsyslog.d/50-iredmail.conf addition + config/fail2ban/{filter.d/iredadmin.conf, jail.d/iredmail.local}. Idempotent across container rebuilds.
+
+   - **Watch out for noise**: Uptime-Kuma at `212.227.103.144` hits `/iredadmin` every minute (visible in `docker logs iredmail-core`). The failregex only matches `Web login failed:` warnings, not GETs, so monitor traffic won't trip the jail.
 
 2. **recidive jail (cross-jail repeat-offender)** — currently bans inside one jail expire and the same IP comes back from a different jail. Recidive watches `fail2ban.log` and bans IPs that get banned ≥3× across all jails for a long window (e.g. 1 week). Container's fail2ban currently doesn't write `fail2ban.log` — need:
    - `loglevel = INFO` and `logtarget = /var/log/fail2ban/fail2ban.log` in `fail2ban.local` of the container.
