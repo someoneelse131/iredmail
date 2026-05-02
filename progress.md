@@ -2,14 +2,14 @@
 
 Active log. Pre-2026-05-01 history is in `progress-archive.md` (562-line incident timeline + 4-agent audit findings + full P3 backlog).
 
-## Status — 2026-05-01
+## Status — 2026-05-02
 
 | Area | State |
 |---|---|
 | Mail persistence | Storage-path bug fixed 2026-04-29. Container recreate no longer loses data. 1083+ msgs restored from TB cache, all subfolders subscribed. |
-| Backup — local | Borg 4h, encrypted (`repokey-blake2`), dedup ~250×, repo ~77 MB at `/opt/iredmail/data/borg-repo`. Cron `15 */4 * * *` verified firing. Old `backup.sh` daily 02:00 still running as safety net (retire ~2026-05-13). |
-| Backup — alerting | Healthchecks.io UUID `140a8ccf-c7ff-4132-ba33-94513ec13ccb`. `/start` + success + `/fail` pings via optional `HEALTHCHECKS_URL=` in `.env`. |
-| Backup — offsite | **ACTIVE** (C6 done 2026-05-01). rclone WebDAV → Ionos HiDrive 100 GB (1.36 €/mo). Sub-user `hidrive-kirby-backup`, isolated to its own home, only `/backup/borg-repo/` visible. Mirrors after every borg run. `--backup-dir hidrive:/backup/.trash/<ts>` keeps replaced/deleted segments → ransomware-from-server can't wipe history. Restore: `rclone copy hidrive:/backup/borg-repo /opt/iredmail/data/borg-repo`. |
+| Backup — local | Borg 4h, encrypted (`repokey-blake2`), dedup ~250×, repo ~99 MB at `/opt/iredmail/data/borg-repo`. Cron `15 */4 * * *` verified firing. Old `backup.sh` daily 02:00 still running as safety net (retire ~2026-05-13). |
+| Backup — alerting | Two independent Healthchecks.io checks. Local borg: `HEALTHCHECKS_URL=…/140a8ccf-…` (existed). Offsite: `HEALTHCHECKS_OFFSITE_URL=…/5e26d866-…` (added 2026-05-02). Each gets `/start` + success + `/fail` pings, so a silent HiDrive outage alerts independently from a successful local borg. |
+| Backup — offsite | **ACTIVE** (C6 done 2026-05-01, paths reorganised + alerting dedicated 2026-05-02). rclone WebDAV → Ionos HiDrive 100 GB (1.36 €/mo). Sub-user `hidrive-kirby-backup`, locked to `/backup/` (HiDrive returns 403 on writes outside it — verified). Layout: `hidrive:/backup/iredmail/data/` (borg repo, 188 obj / 97 MiB) + `hidrive:/backup/iredmail/.trash/<ts>/` (versioned trash from `--backup-dir`). Mirrors after every borg run. `--backup-dir` keeps replaced/deleted segments → ransomware-from-server can't wipe history. Restore: `rclone copy hidrive:/backup/iredmail/data /opt/iredmail/data/borg-repo`. |
 | Borg key | In 1Password + paper. Server `/root/borg-key-export.txt` shredded 2026-05-01. |
 | Spam stack | amavis 10024 (inbound) + 10025 (re-injection) + 10026 (ORIGINATING, signs DKIM outbound). SA scoring `tag2=5.0 kill=9.0`, `D_PASS`. ClamAV runs. Sieve `before.d/spam-to-junk.sieve` files `X-Spam-Flag:YES` → Junk. DKIM signing for all 4 domains; verifier.port25.com confirms `dkim=pass spf=pass iprev=pass` for kirby.rocks (final domain verified 2026-05-01 16:50 after DNS update). |
 | fail2ban (container) | 4 jails active: dovecot (`findtime=3600 maxretry=3` for distributed brute-force), postfix-sasl (8500+ bans), roundcube-auth, sogo-auth. **2 jails still missing: iRedAdmin web panel (= top of pick-next), recidive cross-jail repeater.** |

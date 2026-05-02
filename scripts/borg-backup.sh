@@ -50,6 +50,9 @@ BORG_PASSPHRASE="$(get_env BORG_PASSPHRASE)"
 MYSQL_ROOT_PASSWORD="$(get_env MYSQL_ROOT_PASSWORD)"
 # Optional: dead-man's-switch via Healthchecks.io. If not set, ping is skipped.
 HEALTHCHECKS_URL="$(get_env HEALTHCHECKS_URL 2>/dev/null || true)"
+# Separate check for the offsite (HiDrive) leg so a remote outage alerts even
+# when the local borg leg succeeds. If not set, offsite pings are skipped.
+HEALTHCHECKS_OFFSITE_URL="$(get_env HEALTHCHECKS_OFFSITE_URL 2>/dev/null || true)"
 
 if [ -z "${BORG_PASSPHRASE}" ]; then
     echo "ERROR: BORG_PASSPHRASE not set in .env. See header of this script." >&2
@@ -70,6 +73,16 @@ hc_ping() {
     [ -n "$body" ] && args+=(--data-binary "$body")
     curl "${args[@]}" "${HEALTHCHECKS_URL}${suffix}" >/dev/null \
         || echo "WARN: hc-ping ${suffix:-/} failed" >&2
+}
+
+hc_ping_offsite() {
+    [ -z "${HEALTHCHECKS_OFFSITE_URL}" ] && return 0
+    local suffix="${1:-}"
+    local body="${2:-}"
+    local args=(-fsS -m 10 --retry 3)
+    [ -n "$body" ] && args+=(--data-binary "$body")
+    curl "${args[@]}" "${HEALTHCHECKS_OFFSITE_URL}${suffix}" >/dev/null \
+        || echo "WARN: hc-ping-offsite ${suffix:-/} failed" >&2
 }
 
 on_exit() {
@@ -165,28 +178,38 @@ fi
 
 # Offsite mirror to HiDrive (Ionos). Configured via /root/.config/rclone/rclone.conf
 # (remote name "hidrive"). Local borg success is not blocked by remote-sync failure;
-# we just emit a WARN to stderr — the success hc-ping for borg still fires. To get
-# a separate alert channel for the offsite leg, add a second Healthchecks check and
-# ping it from this block.
+# we report it on a separate Healthchecks check (HEALTHCHECKS_OFFSITE_URL) so a
+# silent HiDrive outage alerts independently from the local borg leg.
 #
 # Ransomware-resistance: --backup-dir moves any deleted/replaced segment into
-# a timestamped folder under .trash/ on HiDrive instead of erasing it. HiDrive
-# itself also keeps a recycle bin reachable from the web UI.
+# a timestamped folder under iredmail/.trash/ on HiDrive instead of erasing it.
+# HiDrive itself also keeps a recycle bin reachable from the web UI.
 if [ -f /root/.config/rclone/rclone.conf ]; then
     echo ""
     echo "[Offsite] Mirroring repo to HiDrive..."
+    hc_ping_offsite "/start"
+    offsite_log="$(mktemp)"
+    # Redirect (not pipe) so `$?` is rclone's exit, not tee's.
     if rclone sync \
-        "${BORG_REPO}" hidrive:/backup/borg-repo \
-        --backup-dir "hidrive:/backup/.trash/$(date +%Y-%m-%d_%H%M%S)" \
+        "${BORG_REPO}" hidrive:/backup/iredmail/data \
+        --backup-dir "hidrive:/backup/iredmail/.trash/$(date +%Y-%m-%d_%H%M%S)" \
         --stats 30s --stats-one-line \
         --transfers 4 \
         --retries 3 --low-level-retries 10 \
-        --timeout 5m
+        --timeout 5m \
+        > "${offsite_log}" 2>&1
     then
+        cat "${offsite_log}"
         echo "[Offsite] OK"
+        hc_ping_offsite "" "OK — synced ${BORG_REPO} to hidrive:/backup/iredmail/data"
     else
-        echo "WARN: rclone sync to HiDrive failed (rc=$?). Local backup is still good." >&2
+        rc=$?
+        cat "${offsite_log}"
+        echo "WARN: rclone sync to HiDrive failed (rc=${rc}). Local backup is still good." >&2
+        hc_ping_offsite "/fail" "FAIL — rclone exit ${rc}. Tail of rclone output:
+$(tail -n 30 "${offsite_log}" 2>/dev/null || echo '(unavailable)')"
     fi
+    rm -f "${offsite_log}"
 else
     echo ""
     echo "[Offsite] Skipped — /root/.config/rclone/rclone.conf not present."

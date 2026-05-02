@@ -28,7 +28,7 @@ cd /opt/iredmail
 #       [hidrive] block, then:
 apt-get install -y rclone
 mkdir -p /opt/iredmail/data/borg-repo
-rclone copy hidrive:/backup/borg-repo /opt/iredmail/data/borg-repo --transfers 4 --progress
+rclone copy hidrive:/backup/iredmail/data /opt/iredmail/data/borg-repo --transfers 4 --progress
 #    Option B: rsync from another offsite host
 rsync -aP user@offsite:/path/to/borg-repo/ /opt/iredmail/data/borg-repo/
 #    Option C: scp / restore from cold storage
