@@ -1,6 +1,6 @@
 # P1-B Phase 2 — Learning Spam Filter (Bayes feedback loop)
 
-**Status:** rev3 2026-05-03 — rev1→rev2 closed 6 HIGH + 8 MED + 8 LOW from initial two-agent review. Third-agent verification of rev2 found 1 new HIGH (sudo package missing from Dockerfile), 4 MED, 4 LOW; this rev3 closes all of them. Pending final two-agent independent verification before plan.
+**Status:** rev4 2026-05-03 — three review rounds (5 agents total) exhausted: rev1→rev2 closed 6 HIGH + 8 MED + 8 LOW (round 1, 2 agents); rev2→rev3 closed 1 HIGH + 4 MED + 4 LOW (round 2, 1 agent); rev3→rev4 closed 1 HIGH + 4 MED + 2 LOW (round 3, 2 agents — security-clear, reviewer found `vnd.dovecot.environment` require-name fix). All HIGH findings resolved; plan-ready.
 **Scope:** add user-driven Bayes training so SpamAssassin's score gets sharper over time, and persist the existing Bayes DB which is currently ephemeral inside the container.
 **Out of scope:** Bayes auto_learn (passive, score-threshold based) — left off; can be added later via single config switch.
 
@@ -104,10 +104,14 @@ Two design choices spelled out:
 `rootfs/var/lib/dovecot/sieve/imap/learn-spam.sieve`:
 ```
 # imap_sieve _after script — IMAP COPY/MOVE/APPEND already happened.
-# `pipe` (without `:copy`) is enough; `:copy` is meaningful only for
-# fileinto/redirect (suppresses implicit message disposal), and the
-# `copy` extension would only be required if we used `:copy`.
-require ["vnd.dovecot.pipe", "imapsieve", "environment", "variables"];
+# Both `environment` (RFC 5183) and `vnd.dovecot.environment` are required:
+# the standard ext enables the `environment` keyword, the vendor ext adds
+# the `imap.user` item we read below.
+# `pipe :copy` follows the documented Pigeonhole imap_sieve antispam
+# example. `:copy` is a no-op for `pipe` in `_after` context (no implicit
+# message disposal to suppress) but matches the canonical pattern; the
+# `copy` capability stays in the require list for the same reason.
+require ["vnd.dovecot.pipe", "copy", "imapsieve", "environment", "vnd.dovecot.environment", "variables"];
 
 # Cap pipe payload at 10 MB. Massive attachments piped synchronously
 # into sa-learn would hold up the imap process and balloon the journal.
@@ -117,7 +121,7 @@ if environment :matches "imap.user" "*" {
   set "username" "${1}";
 }
 
-pipe "sa-learn-pipe.sh" ["spam", "${username}"];
+pipe :copy "sa-learn-pipe.sh" ["spam", "${username}"];
 ```
 
 `learn-ham.sieve`: identical except `"ham"`.
@@ -131,6 +135,8 @@ Build step: in `init.sh`, mirror the existing `before.d/*.sieve` compilation loo
 #!/bin/bash
 # Sieve pipe target: train SpamAssassin Bayes from user IMAP move events.
 # args: $1 = "spam" | "ham"  $2 = username (logging only)
+# Pin PATH so `logger` resolves regardless of Dovecot's pipe environment.
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
 set -uo pipefail
 
 mode="${1:-}"
@@ -211,8 +217,10 @@ The `--no-sync` in the wrapper writes to a fast journal file; a periodic flush m
 New entry in host's `/etc/cron.d/sa-learn-sync` (root cron):
 
 ```
-*/15 * * * * root /usr/bin/docker exec --user amavis iredmail-core /usr/bin/sa-learn --sync --siteconfigpath=/etc/spamassassin >/dev/null 2>&1
+*/15 * * * * root /usr/bin/timeout 60 /usr/bin/docker exec --user amavis iredmail-core /usr/bin/sa-learn --sync --siteconfigpath=/etc/spamassassin >/dev/null 2>&1
 ```
+
+`timeout 60` prevents stacked invocations if dockerd ever stalls — without it, a hung daemon would queue a new sync every 15 min.
 
 Rationale for not reusing sudoers: `--sync` is not in the two whitelisted argv strings (deliberately — the `vmail`→`amavis` path is *only* for spam/ham training, never sync). `docker exec --user amavis` from host-root sets the container uid directly without a sudo intermediary, keeping the wrapper's privilege model minimal.
 
@@ -315,14 +323,15 @@ tail /var/log/iredmail/maillog | grep sa-learn-pipe   # expect: NO new "trained 
 
 ## Migration steps (pre-deploy)
 
-1. Dump current Bayes counters: `docker exec iredmail-core sudo -u amavis sa-learn --dump magic > /tmp/bayes-pre.txt`.
-2. **Stop container first** to freeze amavis writes: `docker compose stop iredmail-core`.
-3. Copy bayes files to host bind-mount target: `docker cp iredmail-core:/var/lib/amavis/.spamassassin/. /opt/iredmail/data/amavis-spamassassin/`.
-4. Apply ownership and permissions: `chown -R 111:115 /opt/iredmail/data/amavis-spamassassin/`, `chmod 700 /opt/iredmail/data/amavis-spamassassin`, `chmod 600 /opt/iredmail/data/amavis-spamassassin/*`.
-5. Apply the rest of the changes (compose mount, dovecot conf, sieve scripts, sa-learn-pipe.sh, sudoers, roundcube config, init.sh tweaks, host crontab entry).
-6. `docker compose up -d --build`.
-7. Verify counters match: `docker exec iredmail-core sudo -u amavis sa-learn --dump magic` should equal `/tmp/bayes-pre.txt`.
-8. Run namespace verification + smoke test from Testing section above.
+1. **Verify amavis uid/gid first** (abort if mismatch): `docker exec iredmail-core id amavis` MUST return `uid=111 gid=115`. If not, the hardcoded `chown 111:115` and `--username=amavis` paths are wrong and the entire deploy needs replanning. Don't proceed past this step on mismatch.
+2. Dump current Bayes counters: `docker exec iredmail-core sudo -u amavis sa-learn --dump magic > /tmp/bayes-pre.txt`.
+3. **Stop container first** to freeze amavis writes: `docker compose stop iredmail-core`.
+4. Copy bayes files to host bind-mount target: `docker cp iredmail-core:/var/lib/amavis/.spamassassin/. /opt/iredmail/data/amavis-spamassassin/`.
+5. Apply ownership and permissions: `chown -R 111:115 /opt/iredmail/data/amavis-spamassassin/`, `chmod 700 /opt/iredmail/data/amavis-spamassassin`, `chmod 600 /opt/iredmail/data/amavis-spamassassin/*`.
+6. Apply the rest of the changes (compose mount, dovecot conf, sieve scripts, sa-learn-pipe.sh, sudoers, roundcube config, init.sh tweaks, host crontab entry).
+7. `docker compose up -d --build`.
+8. Verify counters match: `docker exec iredmail-core sudo -u amavis sa-learn --dump magic` should equal `/tmp/bayes-pre.txt`.
+9. Run namespace verification + smoke test from Testing section above.
 
 ## Rollback
 
@@ -342,9 +351,11 @@ No data loss possible if step 1 of Migration ran first (i.e., we have the pre-de
 - **README-DISASTER-RECOVERY.md:** call out `data/amavis-spamassassin/` as restore-critical state.
 - **auto_learn re-enable later** with conservative thresholds (spam>15, ham<-2) once user-trained baseline is robust (~1k+ trained messages).
 - **Junk folder locale:** Dovecot, SOGo, Roundcube all default to "Junk" in iRedMail; verify cross-checked but don't add code complexity for non-default localized client setups unless we hit one.
-- **host-uid 111 = systemd-coredump on Fedora:** the bind-mount files are owned by host-uid 111, which is `systemd-coredump` on Fedora hosts. Mode 0700 limits exposure; document if userns-remap or rootless docker is ever pursued.
+- **host-uid 111 mapping:** the bind-mount files are owned by host-uid 111 (whatever that resolves to in `/etc/passwd` of the host). On this Fedora 43 system that's currently unallocated (systemd-coredump is 998); on a future host or Debian/Ubuntu base the mapping may differ. Mode 0700 limits exposure regardless. Document if userns-remap or rootless docker is ever pursued.
 - **Group-share alternative considered and rejected:** SpamAssassin docs propose `bayes_file_mode 0660` + shared group as the multi-user pattern. Rejected here because (a) it widens write surface to anyone in the group whether they should learn or not, (b) sudo gives explicit auditable invocation logs vs. silent file writes, (c) doesn't compose well with `--no-sync` journal handling. Documented for posterity; revisit only if sudo proves to add measurable latency (unlikely at our volume).
 - **iRedAdmin username regex (defense-in-depth):** verify `sysadmin/user.py` regex on iRedAdmin restricts new accounts to chars matching the wrapper's `^[A-Za-z0-9._@+-]+$` whitelist, so `imap.user` is doubly-validated.
+- **Sudoers drop-in audit (build-time):** add a Dockerfile assertion `RUN ! grep -RE '!env_reset' /etc/sudoers /etc/sudoers.d/` so any drop-in that weakens env_reset fails the build. Defense in depth against future packages installing sudoers files.
+- **Shared-folders edge case:** `imap.user` reflects the *authenticated* user, not the mailbox owner. iRedMail default has no shared mailboxes, so this never matters today. If shared folders are ever enabled, training would be attributed to the acting user — review whether that's the desired audit behaviour.
 
 ## Components inventory (for plan)
 
