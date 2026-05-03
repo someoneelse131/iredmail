@@ -76,13 +76,20 @@ In risk × effort order. Pull from top. **Both top jails closed 2026-05-02 (iRed
 ## How to resume
 
 1. Read this file. For pre-2026-05-01 history (incident timeline, audit details, full P3 list) → `progress-archive.md`.
-2. State-check:
+2. State-check (expect **6 jails** now: dovecot, iredadmin, postfix-sasl, recidive, roundcube-auth, sogo-auth):
    ```
    ssh mail 'sudo docker exec iredmail-fail2ban fail2ban-client status; \
      sudo docker exec iredmail-core ss -ltn | grep -E "10024|10025|10026"; \
-     sudo borg list /opt/iredmail/data/borg-repo | tail -3'
+     sudo borg list /opt/iredmail/data/borg-repo | tail -3; \
+     sudo tail -3 /opt/iredmail/data/fail2ban-logs/fail2ban.log; \
+     sudo grep -E "^HEALTHCHECKS" /opt/iredmail/.env'
    ```
-3. Pick next from "Open — pick next" above.
+3. **Loose ends from session 2026-05-02 → 03**:
+   - 3 commits unpushed: `4e33a8f` (iredadmin jail), `cab330c` (recidive jail), `f4a954c` (rsyslog dedup). Just `git push` when ready.
+   - hc.io schedule TZ was wrong (UTC → Europe/Zurich). Verify after a few 4h cron cycles that no DOWN alerts repeat.
+   - iRedAdmin jail end-to-end-tested but only against server's own public IP (hairpin NAT bypasses DOCKER-USER for self). External-IP ban verified for **recidive** (`iptables -L f2b-recidive` showed REJECT against TEST-NET IP), so wiring works. iRedAdmin specifically: trust by parity (same chain mechanism), or do a real external curl test from laptop next session.
+   - Server `/opt/iredmail/` git tree months out-of-sync with `origin/main` (pre-existing). Files match content-wise via direct scp, but `git pull` would conflict. See todo.md "Cleanup ideas".
+4. Pick next from "Open — pick next" above (P1-B spam-learning leads).
 
 ## Open questions
 
