@@ -84,10 +84,10 @@ In risk × effort order. Pull from top. **Both top jails closed 2026-05-02 (iRed
      sudo tail -3 /opt/iredmail/data/fail2ban-logs/fail2ban.log; \
      sudo grep -E "^HEALTHCHECKS" /opt/iredmail/.env'
    ```
-3. **Loose ends from session 2026-05-02 → 03**:
-   - 3 commits unpushed: `4e33a8f` (iredadmin jail), `cab330c` (recidive jail), `f4a954c` (rsyslog dedup). Just `git push` when ready.
-   - hc.io schedule TZ was wrong (UTC → Europe/Zurich). Verify after a few 4h cron cycles that no DOWN alerts repeat.
-   - iRedAdmin jail end-to-end-tested but only against server's own public IP (hairpin NAT bypasses DOCKER-USER for self). External-IP ban verified for **recidive** (`iptables -L f2b-recidive` showed REJECT against TEST-NET IP), so wiring works. iRedAdmin specifically: trust by parity (same chain mechanism), or do a real external curl test from laptop next session.
+3. **Loose ends from session 2026-05-02 → 03** (closed 2026-05-03):
+   - ~~3 commits unpushed~~ → pushed.
+   - ~~iRedAdmin extern-IP-Ban unverifiziert~~ → tested 2026-05-03 from kirby's laptop (178.197.219.190): 6 failed POSTs → ban after 5th, `iptables -L f2b-iredadmin` showed REJECT, 7th request `Could not connect to server` in 50ms, unbanned clean. Both jails (iredadmin + recidive) now empirically verified against external IP.
+   - hc.io schedule TZ was wrong (UTC → Europe/Zurich). Still verify after a few 4h cron cycles that no DOWN alerts repeat.
    - Server `/opt/iredmail/` git tree months out-of-sync with `origin/main` (pre-existing). Files match content-wise via direct scp, but `git pull` would conflict. See todo.md "Cleanup ideas".
 4. Pick next from "Open — pick next" above (P1-B spam-learning leads).
 
