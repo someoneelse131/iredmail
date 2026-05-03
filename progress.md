@@ -22,7 +22,7 @@ Active log. Pre-2026-05-01 history is in `progress-archive.md` (562-line inciden
 
 In risk × effort order. Pull from top. **Both top jails closed 2026-05-02 (iRedAdmin + recidive); spam-learning is now next.**
 
-1. **P1-B Phase 2 — learning spam filter** — add imap_sieve plugin + sa-learn pipe scripts (Junk move → `sa-learn --spam`, out-of-Junk → `sa-learn --ham`). Roundcube `markasjunk` plugin for visible Spam button. Note: cron/postmaster local sendmail goes through 10024 → unsigned. Low priority.
+1. **P1-B Phase 2 — learning spam filter** — **PLAN-READY 2026-05-03**, awaiting execution. Spec at `docs/superpowers/specs/2026-05-03-spam-learning-design.md` (rev4, three review rounds with 5 agents, security-clear). 13-task implementation plan at `docs/superpowers/plans/2026-05-03-spam-learning.md`. Execute via `superpowers:subagent-driven-development` skill (one fresh subagent per task, two-stage review between). Tasks 1-9 are repo-only (reversible via `git reset`); Task 10 is the disruptive server-side migration with ~60s mail-flow downtime — STOP and confirm with user before Task 10. Tasks 11-12 are post-deploy verification (11-step matrix). Task 13 updates this file.
 2. **P1-C Roundcube CVE pin** — bump from 1.6.6 → 1.6.10+ in Dockerfile (CVE-2024-37383 / 42008 / 42009 / 42010). Add nginx `deny` for `/mail/composer.*`, `/mail/SQL/`, `/mail/installer/`, `/mail/INSTALL`, `/mail/UPGRADING`, `/mail/SECURITY.md`, `/mail/CHANGELOG.md`, `/mail/vendor/`, `/mail/bin/`. Dockerfile `RUN rm -rf /var/www/roundcube/installer`.
 3. **P1-D Postfix hardening** — see "P1-D values" below for the full list.
 4. **P1-E read-only mounts** — `docker-compose.yml:64-67`: append `:ro` to `./data/ssl:/etc/letsencrypt` and `./data/dkim:/var/lib/dkim`. Verify cert-reload only does SIGHUP.
@@ -89,7 +89,8 @@ In risk × effort order. Pull from top. **Both top jails closed 2026-05-02 (iRed
    - ~~iRedAdmin extern-IP-Ban unverifiziert~~ → tested 2026-05-03 from kirby's laptop (178.197.219.190): 6 failed POSTs → ban after 5th, `iptables -L f2b-iredadmin` showed REJECT, 7th request `Could not connect to server` in 50ms, unbanned clean. Both jails (iredadmin + recidive) now empirically verified against external IP.
    - hc.io schedule TZ was wrong (UTC → Europe/Zurich). Still verify after a few 4h cron cycles that no DOWN alerts repeat.
    - Server `/opt/iredmail/` git tree months out-of-sync with `origin/main` (pre-existing). Files match content-wise via direct scp, but `git pull` would conflict. See todo.md "Cleanup ideas".
-4. Pick next from "Open — pick next" above (P1-B spam-learning leads).
+4. **P1-B Phase 2 is plan-ready** — to execute, invoke `superpowers:subagent-driven-development` with `docs/superpowers/plans/2026-05-03-spam-learning.md`. The plan defines 13 tasks; Tasks 1-9 are all repo-only (Dockerfile, sudoers, wrapper, sieve scripts, dovecot conf, init.sh, compose mount, roundcube config, local docker build verify) and reversible via `git reset --hard origin/main`. Task 10 is the live server migration (~60s mail-flow downtime) — STOP after Task 9 and confirm with user before continuing. Tasks 11-13 = host cron, 11-step verification matrix, status-file update. Spec context: `docs/superpowers/specs/2026-05-03-spam-learning-design.md` (rev4, security-clear).
+5. Other items in "Open — pick next" can also be picked up if user wants to defer P1-B.
 
 ## Open questions
 
