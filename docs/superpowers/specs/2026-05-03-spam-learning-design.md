@@ -1,6 +1,6 @@
 # P1-B Phase 2 — Learning Spam Filter (Bayes feedback loop)
 
-**Status:** rev2 2026-05-03 — first round of two-agent review uncovered 6 HIGH + 8 MED + 8 LOW findings; this revision addresses HIGH+MED inline, LOW notes folded into "Future tightening". Pending second-round verification before plan.
+**Status:** rev3 2026-05-03 — rev1→rev2 closed 6 HIGH + 8 MED + 8 LOW from initial two-agent review. Third-agent verification of rev2 found 1 new HIGH (sudo package missing from Dockerfile), 4 MED, 4 LOW; this rev3 closes all of them. Pending final two-agent independent verification before plan.
 **Scope:** add user-driven Bayes training so SpamAssassin's score gets sharper over time, and persist the existing Bayes DB which is currently ephemeral inside the container.
 **Out of scope:** Bayes auto_learn (passive, score-threshold based) — left off; can be added later via single config switch.
 
@@ -103,7 +103,11 @@ Two design choices spelled out:
 
 `rootfs/var/lib/dovecot/sieve/imap/learn-spam.sieve`:
 ```
-require ["vnd.dovecot.pipe", "copy", "imapsieve", "environment", "variables"];
+# imap_sieve _after script — IMAP COPY/MOVE/APPEND already happened.
+# `pipe` (without `:copy`) is enough; `:copy` is meaningful only for
+# fileinto/redirect (suppresses implicit message disposal), and the
+# `copy` extension would only be required if we used `:copy`.
+require ["vnd.dovecot.pipe", "imapsieve", "environment", "variables"];
 
 # Cap pipe payload at 10 MB. Massive attachments piped synchronously
 # into sa-learn would hold up the imap process and balloon the journal.
@@ -113,7 +117,7 @@ if environment :matches "imap.user" "*" {
   set "username" "${1}";
 }
 
-pipe :copy "sa-learn-pipe.sh" ["spam", "${username}"];
+pipe "sa-learn-pipe.sh" ["spam", "${username}"];
 ```
 
 `learn-ham.sieve`: identical except `"ham"`.
@@ -136,6 +140,7 @@ user="${2:-unknown}"
 case "$mode" in
   spam|ham) ;;
   *)
+    cat >/dev/null   # drain stdin so Pigeonhole's writer doesn't see SIGPIPE
     logger -t sa-learn-pipe -p mail.warning "rejecting mode=$(printf %q "$mode")"
     exit 0
     ;;
@@ -169,12 +174,12 @@ vmail ALL=(amavis) NOPASSWD: /usr/bin/sa-learn --no-sync --ham --username=amavis
 ```
 
 Defense-in-depth layers:
-1. **Sieve `pipe` arglist** — Dovecot constructs the argv from a literal string and `${username}` (env-derived); message body comes via stdin separately, never argv.
+1. **Sieve `pipe` arglist is exec-style, not shell-style** — Dovecot passes argv elements as separate strings to the syscall, never as a shell command line. A username like `"; rm -rf /"` arrives as `argv[2]="; rm -rf /"`, not as a shell tokenization. Even before sanitization, the wrapper sees one string in `$2`; metas would only matter if we later `eval`'d or string-built another shell command from it.
 2. **Wrapper mode whitelist** — only `spam|ham` reaches the sudo invocation.
 3. **Wrapper username regex** — log lines and any future arg-use are sanitized.
 4. **Sudo argv match** — argv must equal one of the two whitelisted strings exactly; any drift (extra arg, different option spelling) is denied.
-5. **Sudo env reset + secure_path** — `PERL5LIB`, `HOME`, `SPAMASSASSIN_HOME` etc. cannot influence sa-learn's behaviour.
-6. **Dockerfile validation** — `RUN visudo -cf /etc/sudoers.d/sa-learn && chmod 0440 /etc/sudoers.d/sa-learn` fails the build if syntax is wrong AND locks the mode regardless of git's exec-bit tracking.
+5. **Sudo env reset + secure_path** — `PERL5LIB`, `HOME`, `SPAMASSASSIN_HOME` etc. cannot influence sa-learn's behaviour. Debian's stock `/etc/sudoers` already sets a global `Defaults env_reset`; our `Defaults!/usr/bin/sa-learn` line additionally pins `secure_path` for this command and re-asserts `env_reset` for clarity (the per-cmd line cannot override stricter global behaviour, only narrow it).
+6. **Dockerfile validation** — `RUN visudo -cf /etc/sudoers.d/sa-learn && chmod 0440 /etc/sudoers.d/sa-learn` fails the build if syntax is wrong AND locks the mode regardless of git's exec-bit tracking. Requires `sudo` package installed first (see Components inventory).
 
 ### 4. Roundcube markasjunk activation
 
@@ -192,6 +197,8 @@ $config['markasjunk_ham_mbox']        = 'INBOX';
 ```
 
 Note the explicit `isset()` guard — `??` PHP-7-syntax is fine for current Roundcube but `isset` is broader-compat and matches the style of existing entries in `config/roundcube/config.inc.php`. The init.sh template defines `$config['plugins'] = array('archive', 'zipdownload', 'managesieve');` and `include`s the custom file *after*, so `array_merge` adds markasjunk to the existing list.
+
+`markasjunk_ham_mbox = 'INBOX'` defines only where the Roundcube "Mark as not junk" button moves a message. Once it lands there, our `imapsieve_mailbox2_name = *` catches it as ham. The user could equally drag from Junk to any other folder via plain IMAP — `imapsieve_mailbox2_name = *` covers that too. The `_ham_mbox` setting governs the button's destination, not what counts as "ham" for learning.
 
 ### 5. Bayes journal sync
 
@@ -273,13 +280,20 @@ docker exec iredmail-core sudo -u amavis perl -e 'use Mail::SpamAssassin; my $sa
 3. `tail /var/log/iredmail/maillog | grep sa-learn-pipe` — expect `sa-learn FAILED ... err=Sorry, ... opposite class already learned`.
 4. `nham` should be **unchanged** in `--dump magic`.
 
-**Sudo policy positive:** the two whitelisted argument lists succeed when invoked as vmail.
-**Sudo policy negative:**
+**Sudo policy positive:** the two whitelisted argument lists succeed when invoked as vmail. (Run from `docker exec -u vmail` with the exact argv from sudoers; expect exit 0 and a sa-learn write to the journal.)
+
+**Sudo policy negative — argv whitelist:**
 ```sh
 docker exec -u vmail iredmail-core /usr/bin/sudo -n -u amavis /usr/bin/sa-learn --foo
-# expect: "Sorry, user vmail is not allowed to execute …"
-docker exec -u vmail iredmail-core /usr/bin/sudo -n -u amavis -E /usr/bin/sa-learn …  # -E to keep env
-# expect: same denial — env_reset Defaults must apply regardless
+# expect: "Sorry, user vmail is not allowed to execute …"  (argv mismatch)
+```
+
+**Sudo policy negative — env_reset enforcement (uses a whitelisted argv so the denial is attributable to `-E`, not argv):**
+```sh
+docker exec -u vmail iredmail-core /usr/bin/sudo -n -E -u amavis /usr/bin/sa-learn \
+  --no-sync --spam --username=amavis --siteconfigpath=/etc/spamassassin
+# expect: "sudo: a password is required" or "sorry, you are not allowed to set the following environment variables"
+# (argv is whitelisted, so denial proves -E is rejected by env_reset)
 ```
 
 **Pipe size DoS guard:**
@@ -343,7 +357,7 @@ Files added or modified:
 - **NEW** `rootfs/usr/local/lib/dovecot/sieve-pipe/sa-learn-pipe.sh` (mode 0755).
 - **NEW** `rootfs/etc/sudoers.d/sa-learn` (mode 0440).
 - **MOD** `rootfs/etc/s6-overlay/scripts/init.sh` — bootstrap `install -d` for bayes dir; sieve compile loop for imap/*.sieve mirroring before.d pattern.
-- **MOD** `Dockerfile` — `RUN visudo -cf /etc/sudoers.d/sa-learn && chmod 0440 /etc/sudoers.d/sa-learn` (defensive build-time validation).
+- **MOD** `Dockerfile` — (a) add `sudo` to the apt-install block (the existing block installs `dovecot-sieve cron supervisor` etc. but not `sudo`; without it, both the runtime wrapper and the build-time `visudo` step fail), (b) `RUN visudo -cf /etc/sudoers.d/sa-learn && chmod 0440 /etc/sudoers.d/sa-learn` (defensive build-time validation, must run AFTER `COPY rootfs/ /` so the file is in place).
 - **MOD** `config/roundcube/config.inc.php` — markasjunk plugin + 3 config vars.
 - **NEW** host `/etc/cron.d/sa-learn-sync` (root) for `*/15 * * * * docker exec --user amavis iredmail-core sa-learn --sync …`.
 - **POSSIBLE-MOD** `rootfs/etc/rsyslog.d/50-iredmail.conf` if auth.warning isn't already routed.
