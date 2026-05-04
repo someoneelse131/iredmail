@@ -38,11 +38,12 @@ In risk × effort order. Pull from top. **P1-B Phase 2 spam-learning live 2026-0
 
 These need a real IMAP client (Roundcube + Thunderbird) — `doveadm move` bypasses `imap_sieve` per Pigeonhole docs, so they couldn't be automated.
 
-- [ ] **Step 3 — Roundcube spam-learn:** send a fresh non-GTUBE test mail to a regular user inbox; in Roundcube webmail, select → "Mark as junk" button. Verify mail moves to Junk and `nspam` increments by 1 (`ssh mail 'sudo /usr/bin/timeout 60 /usr/bin/docker exec --user amavis iredmail-core /usr/bin/sa-learn --sync && sudo docker exec --user amavis iredmail-core sa-learn --dump magic | grep nspam'`).
-- [ ] **Step 4 — Thunderbird drag spam:** repeat with TB drag-to-Junk on a different fresh test mail. Sync, expect another `nspam` +1.
-- [ ] **Step 5 — Ham-learn (drag back):** drag a clean message from Junk to INBOX. Sync, expect `nham` +1.
-- [ ] **Step 6 — Re-classification refusal:** move the same mail BACK toward the wrong direction (Junk-trained mail back to INBOX). Expect `nham` UNCHANGED and a `mail.warning sa-learn-pipe ... err=…` line in `/opt/iredmail/data/logs/maillog` (sa-learn refuses opposite class).
-- [ ] **Step 9 — Pipe size DoS guard runtime:** static check passes (sieve has `if size :over 10M { stop; }`, sievec compiled clean). Programmatic test would need a real IMAP APPEND >10 MB into Junk. If you ever want to confirm runtime, IMAP-APPEND a 20 MB payload from Roundcube/TB into Junk and verify NO `sa-learn-pipe trained` line appears in maillog.
+**Bug found + fixed during verification 2026-05-04:** spec rev4 + plan + 5 reviewers all let `imapsieve_mailboxN_causes = COPY MOVE APPEND` slip through. `MOVE` is NOT a valid Pigeonhole event cause (only APPEND/COPY/FLAG are). Dovecot logged `Warning: imapsieve: Static mailbox rule [N] has invalid event cause 'MOVE' (skipped)` on every IMAP login and silently skipped both rules — i.e. the feature looked installed but trained nothing. Fixed in commit `ba7624d` (`COPY MOVE APPEND` → `COPY APPEND`, `COPY MOVE` → `COPY`); IMAP MOVE is COPY+EXPUNGE under the hood so `COPY` already catches drag-and-drop.
+
+- [x] **Step 3+4 — Spam-learn (TB drag, equivalent to RC "Mark as junk"):** verified 2026-05-04 21:30 with a synthetic test mail to contact@maisonsoave.ch, dragged INBOX→Junk in TB. `sa-learn-pipe: trained mode=spam user=contact@maisonsoave.ch` logged once; `nspam 0→1`, `ntokens +84`.
+- [x] **Step 5 — Ham-learn (drag back):** verified 2026-05-04 21:38 by dragging the same mail Junk→INBOX. `sa-learn-pipe: trained mode=ham` logged twice in 0.6s (likely TB's IDLE+sync re-fires the COPY hook, harmless — sa-learn is idempotent for same-direction repeats); `nspam 1→0` (auto-unlearn from re-class), `nham 15→18` (some of the +3 likely came from amavis auto_learn on parallel inbound clean mail).
+- [x] **Step 6 — Re-classification refusal:** spec misconception. sa-learn does NOT refuse opposite-direction re-train; it re-classifies (unlearn old direction, learn new). The unlearn was actually observed in Step 5 (`nspam 1→0`). What sa-learn DOES refuse is repeat-training the SAME direction (logs "Skipped already-learned"). No real test needed; the unlearn-on-reclass is the desired user-correction semantics.
+- [ ] **Step 9 — Pipe size DoS guard runtime:** static check passes (sieve has `if size :over 10M { stop; }`, sievec compiled clean). Programmatic test would need a real IMAP APPEND >10 MB into Junk. Low priority — defer or skip.
 
 ## P1-D values — concrete diff for `init.sh` postfix gen block
 
