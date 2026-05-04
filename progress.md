@@ -20,13 +20,12 @@ Active log. Pre-2026-05-01 history is in `progress-archive.md` (562-line inciden
 
 ## Open — pick next
 
-In risk × effort order. Pull from top. **P1-B Phase 2 spam-learning live 2026-05-04 (see "What's SOLID"); P1-C Roundcube CVE pin is now top.**
+In risk × effort order. Pull from top. **P1-B Phase 2 spam-learning live + fully verified 2026-05-04 (see "What's SOLID" + "P1-B residual user tests"); P1-C Roundcube CVE pin is now top.**
 
 1. **P1-C Roundcube CVE pin** — bump from 1.6.6 → 1.6.10+ in Dockerfile (CVE-2024-37383 / 42008 / 42009 / 42010). Add nginx `deny` for `/mail/composer.*`, `/mail/SQL/`, `/mail/installer/`, `/mail/INSTALL`, `/mail/UPGRADING`, `/mail/SECURITY.md`, `/mail/CHANGELOG.md`, `/mail/vendor/`, `/mail/bin/`. Dockerfile `RUN rm -rf /var/www/roundcube/installer`.
 2. **P1-D Postfix hardening** — see "P1-D values" below for the full list.
 3. **P1-E read-only mounts** — `docker-compose.yml:64-67`: append `:ro` to `./data/ssl:/etc/letsencrypt` and `./data/dkim:/var/lib/dkim`. Verify cert-reload only does SIGHUP.
-4. **P1-B Phase 2 — user-UI verification matrix** (carried over from 2026-05-04 deploy). Spam-learning is live and 7/11 tests passed programmatically; the 4 IMAP-driven tests require a real client (Roundcube + Thunderbird) — see "P1-B residual user tests" below.
-5. **P0-3 sudo NOPASSWD** — user job (visudo on server). Procedure:
+4. **P0-3 sudo NOPASSWD** — user job (visudo on server). Procedure:
    ```
    sudo visudo -f /etc/sudoers.d/90-cloud-init-users
    # change:  masteradmin ALL=(ALL) NOPASSWD:ALL  →  masteradmin ALL=(ALL) ALL
@@ -34,16 +33,17 @@ In risk × effort order. Pull from top. **P1-B Phase 2 spam-learning live 2026-0
    ```
 6. **P3 backlog** — see `progress-archive.md` "P3" sections. Highlights: SOGo memcached broken (floods sogo.log), H1 amavis bind-mount (DONE 2026-05-04 as part of P1-B Phase 2), H2 docker log driver + `live-restore`, H3 logrotate iRedMail logs, H5 real mailflow healthcheck, H6/H7 borg-backup.sh resilience patches, MTA-STS + TLS-RPT, HSTS, BCRYPT in iRedAdmin, container `no-new-privileges`/cap drops, kernel reboot pending.
 
-## P1-B residual user tests
+## P1-B residual user tests — ALL DONE 2026-05-04
 
-These need a real IMAP client (Roundcube + Thunderbird) — `doveadm move` bypasses `imap_sieve` per Pigeonhole docs, so they couldn't be automated.
+These needed a real IMAP client (Roundcube + Thunderbird) — `doveadm move` bypasses `imap_sieve` per Pigeonhole docs, so they couldn't be automated.
 
 **Bug found + fixed during verification 2026-05-04:** spec rev4 + plan + 5 reviewers all let `imapsieve_mailboxN_causes = COPY MOVE APPEND` slip through. `MOVE` is NOT a valid Pigeonhole event cause (only APPEND/COPY/FLAG are). Dovecot logged `Warning: imapsieve: Static mailbox rule [N] has invalid event cause 'MOVE' (skipped)` on every IMAP login and silently skipped both rules — i.e. the feature looked installed but trained nothing. Fixed in commit `ba7624d` (`COPY MOVE APPEND` → `COPY APPEND`, `COPY MOVE` → `COPY`); IMAP MOVE is COPY+EXPUNGE under the hood so `COPY` already catches drag-and-drop.
 
-- [x] **Step 3+4 — Spam-learn (TB drag, equivalent to RC "Mark as junk"):** verified 2026-05-04 21:30 with a synthetic test mail to contact@maisonsoave.ch, dragged INBOX→Junk in TB. `sa-learn-pipe: trained mode=spam user=contact@maisonsoave.ch` logged once; `nspam 0→1`, `ntokens +84`.
-- [x] **Step 5 — Ham-learn (drag back):** verified 2026-05-04 21:38 by dragging the same mail Junk→INBOX. `sa-learn-pipe: trained mode=ham` logged twice in 0.6s (likely TB's IDLE+sync re-fires the COPY hook, harmless — sa-learn is idempotent for same-direction repeats); `nspam 1→0` (auto-unlearn from re-class), `nham 15→18` (some of the +3 likely came from amavis auto_learn on parallel inbound clean mail).
-- [x] **Step 6 — Re-classification refusal:** spec misconception. sa-learn does NOT refuse opposite-direction re-train; it re-classifies (unlearn old direction, learn new). The unlearn was actually observed in Step 5 (`nspam 1→0`). What sa-learn DOES refuse is repeat-training the SAME direction (logs "Skipped already-learned"). No real test needed; the unlearn-on-reclass is the desired user-correction semantics.
-- [ ] **Step 9 — Pipe size DoS guard runtime:** static check passes (sieve has `if size :over 10M { stop; }`, sievec compiled clean). Programmatic test would need a real IMAP APPEND >10 MB into Junk. Low priority — defer or skip.
+- [x] **Step 3+4 — Spam-learn (TB drag, equivalent to RC "Mark as junk"):** verified 21:30 with a synthetic test mail to contact@maisonsoave.ch, dragged INBOX→Junk in TB. `sa-learn-pipe: trained mode=spam` logged once; `nspam 0→1`, `ntokens +84`.
+- [x] **Step 5 — Ham-learn (drag back):** verified 21:38 by dragging the same synthetic mail Junk→INBOX. `sa-learn-pipe: trained mode=ham` logged twice in 0.6s (TB's IDLE/sync re-fires the COPY hook; harmless — sa-learn is idempotent for same-direction repeats and re-classifies for opposite). Counter delta: `nspam 1→0` (auto-unlearn-on-reclass), `nham 15→18`.
+- [x] **Step 6 — Re-classification:** spec misconception. sa-learn does NOT refuse opposite-direction re-train; it re-classifies (unlearn old direction, learn new). Observed inline in Step 5 (`nspam 1→0`). What sa-learn DOES refuse is repeat-training the SAME direction ("Skipped already-learned"). No bug, just a doc detail.
+- [x] **Real-spam train 2026-05-04 22:04:** user manually cycled the actual DHL phishing mail (originally moved into Junk during the bug window — was not trained then) Junk→INBOX→Junk. `mode=ham` × 2 then `mode=spam` × 1 logged. Counters now `nspam=1, nham=20, ntokens=5909` — phishing mail correctly classified as spam, +121 real-spam tokens in the bayes db.
+- [ ] **Step 9 — Pipe size DoS guard runtime:** static check passes (sieve has `if size :over 10M { stop; }`, sievec compiled clean). Programmatic test would need a real IMAP APPEND >10 MB into Junk. Low priority — skip.
 
 ## P1-D values — concrete diff for `init.sh` postfix gen block
 
@@ -86,9 +86,13 @@ These need a real IMAP client (Roundcube + Thunderbird) — `doveadm move` bypas
 - **Bayes-learning live (P1-B Phase 2 done 2026-05-04):**
   - 8 commits a3d57ff…8b89c5e (Dockerfile sudo + visudo build-gate, sudoers `vmail→amavis spam|ham only`, `sa-learn-pipe.sh` wrapper, two `imap_sieve` sieves, dovecot conf merge, `init.sh` bayes-bootstrap + sievec loop, compose bind mount `data/amavis-spamassassin`, Roundcube `markasjunk` plugin). Each implemented + reviewed (spec + quality) by isolated subagents.
   - Server migration ~38s mailflow downtime: pre-built image while old container running, then stop → `docker cp` Bayes DB to host bind mount (uid 111:115, dir 0700, files 0600) → `docker compose up -d` (no `--build`) → all ports 25/143/10024/10025/10026 live.
-  - Verification matrix programmatic 7/11 PASS (1 SA-username = amavis, 2 LMTP no-trigger, 7 sudo argv mismatch, 8 sudo `-E` blocked by `env_reset`, 10 Bayes survives container restart, 11 borg archive includes `opt/iredmail/data/amavis-spamassassin/{bayes_seen,bayes_toks}` 0600 111:115). Step 9 (pipe size DoS) static-PASS (`if size :over 10M { stop; }` present, sievec compiled). Steps 3,4,5,6 carried over to "P1-B residual user tests" — `doveadm move` bypasses `imap_sieve` per Pigeonhole docs, real RC/TB IMAP needed.
+  - Verification matrix 10/11 PASS (programmatic 1, 2, 7, 8, 10, 11 + user-UI 3, 4, 5, 6 via TB drag — see "P1-B residual user tests"). Step 9 (pipe size DoS) static-PASS only (sieve has `if size :over 10M { stop; }`, sievec compiled clean; runtime test would need IMAP APPEND >10 MB, low value).
+  - Bug caught + fixed inline (commit `ba7624d`): `imapsieve_mailbox*_causes` listed `MOVE` which is not a valid Pigeonhole event cause — dovecot logged `Warning: imapsieve: Static mailbox rule [N] has invalid event cause 'MOVE' (skipped)` and silently skipped both rules. IMAP MOVE is COPY+EXPUNGE under the hood, so `COPY` already catches drag-and-drop. Lesson saved to memory `feedback_imap_sieve_no_move_cause.md`.
+  - Real-spam train confirmed: user dragged actual DHL-phishing mail Junk→INBOX→Junk; `nspam=1, nham=20, ntokens=5909` after sync (684 unique journal entries flushed).
   - Host cron `*/15 * * * *` (`/etc/cron.d/sa-learn-sync`) flushes Bayes journal via `docker exec --user amavis sa-learn --sync`. Manual one-shot returned OK.
-  - Pre-migration baseline `/tmp/bayes-pre.txt` (laptop) + `/tmp/iredmail-pre-spamlearn-snapshot/` (server) preserve the 5 originals (Dockerfile, docker-compose.yml, 91-iredmail-sieve.conf, init.sh, roundcube/config.inc.php) for rollback if a regression surfaces in the next 24h.
+  - Pre-migration baseline `/tmp/bayes-pre.txt` (laptop) + `/tmp/iredmail-pre-spamlearn-snapshot/` (server) preserve the 5 originals (Dockerfile, docker-compose.yml, 91-iredmail-sieve.conf, init.sh, roundcube/config.inc.php) for rollback. Delete after ~24h of stable usage:
+    - `ssh mail 'sudo rm -rf /tmp/iredmail-pre-spamlearn-snapshot'`
+    - laptop: `rm -f /tmp/bayes-pre.txt`
 
 ## How to resume
 
@@ -102,11 +106,12 @@ These need a real IMAP client (Roundcube + Thunderbird) — `doveadm move` bypas
      sudo docker exec --user amavis iredmail-core sa-learn --dump magic | grep -E "nspam|nham|ntokens"; \
      sudo grep -E "^HEALTHCHECKS" /opt/iredmail/.env'
    ```
-3. **P1-B Phase 2 residual:** Steps 3,4,5,6 of the verification matrix are user-UI tests (Roundcube + Thunderbird). See "P1-B residual user tests" above — pick a regular user mailbox (NOT postmaster — its Junk folder doesn't exist), do the 4 IMAP-driven moves, expect `nspam` / `nham` increments. After ~24h of real usage with no regressions, delete the rollback artefacts:
+3. **Rollback artefacts** (delete if state-check above is clean and no spam-learning regressions reported):
    - `ssh mail 'sudo rm -rf /tmp/iredmail-pre-spamlearn-snapshot'`
    - laptop: `rm -f /tmp/bayes-pre.txt`
-4. **Server `/opt/iredmail/` git tree** still months out-of-sync with `origin/main`. Files are now even more divergent after the 2026-05-04 deploy (we scp'd 9 files in directly per Task 10 plan). `git pull` on server would conflict heavily. Reconcile via either: (a) `cd /opt/iredmail && sudo git fetch && sudo git reset --hard origin/main` once we trust the deploy is stable, or (b) keep the deploy-via-scp pattern and never touch git on the server. See todo.md "Cleanup ideas".
-5. Other items in "Open — pick next" can be picked up freely now.
+4. **Server `/opt/iredmail/` git tree** still months out-of-sync with `origin/main`. Files are now even more divergent after the 2026-05-04 deploy (we scp'd 9 files in directly per Task 10 plan + the `ba7624d` hot-fix). `git pull` on server would conflict heavily. Reconcile via either: (a) `cd /opt/iredmail && sudo git fetch && sudo git reset --hard origin/main` once we trust the deploy is stable, or (b) keep the deploy-via-scp pattern and never touch git on the server. See todo.md "Cleanup ideas".
+5. **hc.io schedule TZ** (carry-over): verify after a few 4h cron cycles that no DOWN alerts repeat. Was wrong UTC → set to Europe/Zurich 2026-05-02.
+6. Pick from "Open — pick next" — top is **P1-C Roundcube CVE pin**.
 
 ## Open questions
 
