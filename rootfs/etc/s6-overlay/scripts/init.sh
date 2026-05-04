@@ -663,6 +663,11 @@ EOF
     chown -R amavis:amavis /var/lib/amavis
     chmod 750 /var/lib/amavis /var/lib/amavis/tmp
 
+    # Bayes DB bind-mount target (/var/lib/amavis/.spamassassin).
+    # Idempotent: install -d only chowns/chmods the target itself, never recurses,
+    # so it doesn't rewrite ownership of every DB segment file each restart.
+    install -d -o amavis -g amavis -m 0700 /var/lib/amavis/.spamassassin
+
     # 5) Pre-compile global sieve scripts. LMTP runs as the recipient user
     #    (vmail) and cannot write to /etc/dovecot/sieve/before.d/, so the
     #    runtime cannot compile .sieve → .svbin itself. Compile up-front.
@@ -675,6 +680,18 @@ EOF
     fi
     chown -R dovecot:dovecot /etc/dovecot/sieve
     chmod 644 /etc/dovecot/sieve/before.d/*.sieve /etc/dovecot/sieve/before.d/*.svbin 2>/dev/null || true
+
+    # 6) Pre-compile imap_sieve scripts (analogous to the before.d compile).
+    #    Idempotent — sievec rewrites .svbin from .sieve every run.
+    mkdir -p /var/lib/dovecot/sieve/imap
+    if command -v sievec >/dev/null 2>&1; then
+        for f in /var/lib/dovecot/sieve/imap/*.sieve; do
+            [ -f "$f" ] || continue
+            sievec "$f" 2>&1 | sed 's/^/  sievec: /'
+        done
+    fi
+    chown -R vmail:vmail /var/lib/dovecot/sieve/imap
+    chmod 644 /var/lib/dovecot/sieve/imap/*.sieve /var/lib/dovecot/sieve/imap/*.svbin 2>/dev/null || true
 
     local n
     n="$(ls /var/lib/dkim/*.pem 2>/dev/null | wc -l)"
