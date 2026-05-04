@@ -23,3 +23,10 @@ $config['proxy_whitelist'] = array(
 //     'password',
 //     'zipdownload',
 // ));
+
+// markasjunk activation. learning_driver=null means plugin only does IMAP
+// move — our Dovecot imap_sieve catches that. Avoids double-training.
+$config['plugins'] = array_merge(isset($config['plugins']) ? $config['plugins'] : [], ['markasjunk']);
+$config['markasjunk_learning_driver'] = null;
+$config['markasjunk_spam_mbox']       = 'Junk';
+$config['markasjunk_ham_mbox']        = 'INBOX';
