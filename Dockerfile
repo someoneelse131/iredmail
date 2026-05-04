@@ -121,7 +121,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # -------------------------------------------------------------------------
     # Utilities
     # -------------------------------------------------------------------------
-    cron supervisor \
+    cron sudo supervisor \
     && rm -rf /var/lib/apt/lists/*
 
 # =============================================================================
@@ -231,6 +231,9 @@ RUN mkdir -p \
 # Copy s6-overlay Service Definitions
 # =============================================================================
 COPY rootfs/ /
+
+# Validate sudoers and lock mode (sudo refuses files with bad perms or syntax)
+RUN visudo -cf /etc/sudoers.d/sa-learn && chmod 0440 /etc/sudoers.d/sa-learn
 
 # =============================================================================
 # Copy SQL Initialization Scripts
