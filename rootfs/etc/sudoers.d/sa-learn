@@ -1,0 +1,9 @@
+# Allow vmail to run sa-learn as amavis with exactly two argument lists.
+# No wildcards, no shell metachars permitted in argv.
+# env_reset is sudo's default but we re-assert it for /usr/bin/sa-learn
+# and pin secure_path so vmail-controlled PERL5LIB / SPAMASSASSIN_HOME
+# can't influence sa-learn's plugin loading or DB path resolution.
+Defaults!/usr/bin/sa-learn env_reset, secure_path="/usr/sbin:/usr/bin:/sbin:/bin"
+
+vmail ALL=(amavis) NOPASSWD: /usr/bin/sa-learn --no-sync --spam --username=amavis --siteconfigpath=/etc/spamassassin
+vmail ALL=(amavis) NOPASSWD: /usr/bin/sa-learn --no-sync --ham --username=amavis --siteconfigpath=/etc/spamassassin
