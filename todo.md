@@ -33,6 +33,10 @@ Probably not. The full `.env` is included in every borg archive, so anyone with 
 
 ## Cleanup ideas (not blocking)
 
+- **P1-B Phase 2 future-tightening (deferred from spec rev4):**
+  - Re-enable amavis `auto_learn = yes` later, once we have ≥200 user-trained spam + ≥200 user-trained ham messages. The whole point of user-driven training is to avoid feedback loops; with enough manual signal we can layer auto-learn on top to compound the rate.
+  - Add a healthcheck cron that pages if `nspam : nham` ratio drifts >10:1 in either direction (signal of a stuck training source). e.g. `*/30 * * * * root /opt/iredmail/scripts/sa-learn-ratio-check.sh` — write the script.
+  - README-DISASTER-RECOVERY.md should mention `data/amavis-spamassassin/` as a restorable bind mount (it'll come back automatically via `borg extract`, but spell that out in the restore checklist).
 - Retire `scripts/backup.sh` 2026-05-13 (after 2 weeks of borg stability). Or shorten retention to 7d.
 - `restore-borg.sh:135` hardcoded 9-dir list → replace with deny-list iteration over actual borg archive contents (so new data dirs are restored automatically).
 - `mysqldump -p"$VAR"` in `borg-backup.sh` puts password on argv (briefly visible in `ps` inside `iredmail-db`). Switch to `--defaults-extra-file=` or `MYSQL_PWD` env.
