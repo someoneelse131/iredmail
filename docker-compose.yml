@@ -81,6 +81,7 @@ services:
       # Runtime data
       - ./data/clamav:/var/lib/clamav
       - ./data/spamassassin:/var/lib/spamassassin
+      - ./data/amavis-spamassassin:/var/lib/amavis/.spamassassin
       - ./data/sogo:/var/lib/sogo
       - ./data/postfix-queue:/var/spool/postfix
       # Logs (shared with fail2ban)
