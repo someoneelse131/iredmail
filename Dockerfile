@@ -14,7 +14,7 @@ LABEL description="Production-ready iRedMail Docker image with s6-overlay"
 ARG DEBIAN_FRONTEND=noninteractive
 ARG S6_OVERLAY_VERSION=3.1.6.2
 ARG IREDMAIL_VERSION=1.6.8
-ARG ROUNDCUBE_VERSION=1.6.6
+ARG ROUNDCUBE_VERSION=1.6.15
 ARG IREDAPD_VERSION=5.6.0
 ARG IREDADMIN_VERSION=2.7
 
@@ -137,6 +137,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN mkdir -p /var/www/roundcube && \
     curl -fsSL https://github.com/roundcube/roundcubemail/releases/download/${ROUNDCUBE_VERSION}/roundcubemail-${ROUNDCUBE_VERSION}-complete.tar.gz | \
     tar -xz -C /var/www/roundcube --strip-components=1 && \
+    rm -rf /var/www/roundcube/installer && \
     chown -R www-data:www-data /var/www/roundcube && \
     chmod -R 755 /var/www/roundcube
 

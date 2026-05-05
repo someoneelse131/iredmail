@@ -995,6 +995,21 @@ EOF
     chown -R www-data:www-data /var/www/roundcube/config /var/log/iredmail/roundcube /tmp/roundcube
     chmod 600 /var/www/roundcube/config/config.inc.php
 
+    # Idempotent schema migration: bin/updatedb.sh reads the system table for
+    # the current schema version and applies pending deltas only. No-op on a
+    # fresh DB or if already at current. Safe on every boot.
+    if [ -x /var/www/roundcube/bin/updatedb.sh ]; then
+        echo "Running Roundcube schema migration (idempotent)..."
+        local out rc
+        out=$(sudo -u www-data php /var/www/roundcube/bin/updatedb.sh \
+            --dir=/var/www/roundcube/SQL --package=roundcube 2>&1)
+        rc=$?
+        echo "$out" | sed 's/^/  [updatedb] /'
+        if [ "$rc" -ne 0 ]; then
+            echo "  [updatedb] WARN: exited $rc — investigate Roundcube version/DB skew"
+        fi
+    fi
+
     echo "Roundcube configuration created."
 }
 

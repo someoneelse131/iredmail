@@ -90,6 +90,15 @@ server {
         index index.php;
         try_files $uri $uri/ /mail/index.php?$args;
 
+        # Block paths that must never be web-reachable: composer manifests,
+        # SQL schemas, the installer (also rm-ed at build), upgrade/security
+        # docs, vendored deps and CLI helpers (bin/updatedb.sh etc.).
+        # Must come before the .php regex below so installer/*.php is denied.
+        location ~* ^/mail/(composer\.|SQL/|installer/|INSTALL$|UPGRADING$|SECURITY\.md$|CHANGELOG\.md$|vendor/|bin/) {
+            deny all;
+            return 404;
+        }
+
         location ~ ^/mail/(.+\.php)$ {
             alias /var/www/roundcube/$1;
             fastcgi_pass unix:/run/php/php8.1-fpm.sock;
