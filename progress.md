@@ -2,10 +2,12 @@
 
 Active log. Pre-2026-05-01 history is in `progress-archive.md` (562-line incident timeline + 4-agent audit findings + full P3 backlog).
 
-## Status — 2026-05-04
+## Status — 2026-05-15
 
 | Area | State |
 |---|---|
+| Postfix hardening | **P1-D live 2026-05-15** (commit `628a0ea`, image rebuilt + container recreated). Port 25 enforces TLSv1.2+, AUTH gated on TLS, HELO mandatory, VRFY off, FQDN sender/recipient checks, 5xx `reject_unauth_destination`. Submission 587 / SMTPS 465 unchanged (already strict via per-service `-o`). policyd-spf intentionally NOT wired (not installed in image; SPF enforced at amavis Mail::SPF). End-to-end smoke test passed: 127.0.0.1:25 → amavis `Passed CLEAN` → LMTP `Saved`. |
+| Mounts | **P1-E live 2026-05-15** (same commit). `./data/ssl:/etc/letsencrypt:ro` on iredmail container; certbot container keeps rw on line 133 for renewal. DKIM stays rw because `scripts/add-domain.sh:146` writes new `.pem` via `docker exec`. Verified via `docker inspect`. |
 | Mail persistence | Storage-path bug fixed 2026-04-29. Container recreate no longer loses data. 1083+ msgs restored from TB cache, all subfolders subscribed. |
 | Backup — local | Borg 4h, encrypted (`repokey-blake2`), dedup ~250×, repo ~94 MB at `/opt/iredmail/data/borg-repo`. Cron `15 */4 * * *` verified firing. Old `backup.sh` daily 02:00 still running as safety net (retire ~2026-05-13). |
 | Backup — alerting | Two independent Healthchecks.io checks. Local borg: `HEALTHCHECKS_URL=…/140a8ccf-…` (existed). Offsite: `HEALTHCHECKS_OFFSITE_URL=…/5e26d866-…` (added 2026-05-02). Each gets `/start` + success + `/fail` pings, so a silent HiDrive outage alerts independently from a successful local borg. **Gotcha (2026-05-02):** Schedule-Time-Zone auf hc.io muss `Europe/Zurich` sein (nicht `UTC`), sonst feuert die Cron-Expression `15 */4 * * *` 2h verschoben gegen die Server-CEST-Pings → konstante 30min-Grace-DOWN-Alerts. Beide Checks auf `Europe/Zurich` gesetzt. |
@@ -20,24 +22,15 @@ Active log. Pre-2026-05-01 history is in `progress-archive.md` (562-line inciden
 
 ## Open — pick next
 
-In risk × effort order. Pull from top. **P1-C done in `98c05c6` (Roundcube 1.6.15). P1-D + P1-E committed to repo 2026-05-15 — deploy on server pending.**
+In risk × effort order. Pull from top. **P1-C done in `98c05c6` (Roundcube 1.6.15). P1-D + P1-E deployed + verified 2026-05-15 (`628a0ea`). GH issue #1 closeable.**
 
-1. **DEPLOY P1-D + P1-E** — on server `mail`:
-   ```
-   cd /opt/iredmail && git pull          # or scp the two changed files
-   docker compose up -d --build iredmail # rebuild only iredmail container
-   # verify:
-   docker exec iredmail-core postconf | grep -E '(smtpd_tls_auth_only|smtpd_helo_required|disable_vrfy_command|>=TLSv1\.2|reject_unauth_destination)'
-   docker inspect iredmail-core --format '{{range .Mounts}}{{.Source}}→{{.Destination}} ro={{.RW | not}}{{println}}{{end}}' | grep -E '(ssl|dkim)'
-   # smoke-test inbound + outbound mail end-to-end, then close GH issue #1
-   ```
-2. **P0-3 sudo NOPASSWD** — user job (visudo on server). Procedure:
+1. **P0-3 sudo NOPASSWD** — user job (visudo on server). Procedure:
    ```
    sudo visudo -f /etc/sudoers.d/90-cloud-init-users
    # change:  masteradmin ALL=(ALL) NOPASSWD:ALL  →  masteradmin ALL=(ALL) ALL
    # test in NEW ssh session: `sudo whoami` must prompt for password.
    ```
-3. **P3 backlog** — see `progress-archive.md` "P3" sections. Highlights: SOGo memcached broken (floods sogo.log), H1 amavis bind-mount (DONE 2026-05-04 as part of P1-B Phase 2), H2 docker log driver + `live-restore`, H3 logrotate iRedMail logs, H5 real mailflow healthcheck, H6/H7 borg-backup.sh resilience patches, MTA-STS + TLS-RPT, HSTS, BCRYPT in iRedAdmin, container `no-new-privileges`/cap drops, kernel reboot pending.
+2. **P3 backlog** — see `progress-archive.md` "P3" sections. Highlights: SOGo memcached broken (floods sogo.log), H1 amavis bind-mount (DONE 2026-05-04 as part of P1-B Phase 2), H2 docker log driver + `live-restore`, H3 logrotate iRedMail logs, H5 real mailflow healthcheck, H6/H7 borg-backup.sh resilience patches, MTA-STS + TLS-RPT, HSTS, BCRYPT in iRedAdmin, container `no-new-privileges`/cap drops, kernel reboot pending.
 
 ## P1-B residual user tests — ALL DONE 2026-05-04
 
