@@ -22,15 +22,16 @@ Active log. Pre-2026-05-01 history is in `progress-archive.md` (562-line inciden
 
 ## Open — pick next
 
-In risk × effort order. Pull from top. **P1-C done in `98c05c6` (Roundcube 1.6.15). P1-D + P1-E deployed + verified 2026-05-15 (`628a0ea`). GH issue #1 closeable.**
+In risk × effort order. Pull from top. **P1-C done in `98c05c6` (Roundcube 1.6.15). P1-D + P1-E deployed + verified 2026-05-15 (`628a0ea`). GH issue #1 closeable. MTA-STS + TLS-RPT spec+plan ready, not yet executed.**
 
-1. **P0-3 sudo NOPASSWD** — user job (visudo on server). Procedure:
+1. **MTA-STS + TLS-RPT rollout** — execute the implementation plan via subagent-driven-development. Spec: `docs/superpowers/specs/2026-05-15-mta-sts-rollout-design.md` (`936ea95`). Plan: `docs/superpowers/plans/2026-05-15-mta-sts-rollout.md` (`1b75b15`). 16 tasks; Tasks 9 + 12 pause for user-side DNS edits (Infomaniak for chiaruzzi.ch, Ionos for the other 3). After 2 weeks of clean TLS-RPT reports → enforce switch.
+2. **P0-3 sudo NOPASSWD** — user job (visudo on server). Procedure:
    ```
    sudo visudo -f /etc/sudoers.d/90-cloud-init-users
    # change:  masteradmin ALL=(ALL) NOPASSWD:ALL  →  masteradmin ALL=(ALL) ALL
    # test in NEW ssh session: `sudo whoami` must prompt for password.
    ```
-2. **P3 backlog** — see `progress-archive.md` "P3" sections. Highlights: SOGo memcached broken (floods sogo.log), H1 amavis bind-mount (DONE 2026-05-04 as part of P1-B Phase 2), H2 docker log driver + `live-restore`, H3 logrotate iRedMail logs, H5 real mailflow healthcheck, H6/H7 borg-backup.sh resilience patches, MTA-STS + TLS-RPT, HSTS, BCRYPT in iRedAdmin, container `no-new-privileges`/cap drops, kernel reboot pending.
+3. **P3 backlog** — see `progress-archive.md` "P3" sections. Highlights: SOGo memcached broken (floods sogo.log), H1 amavis bind-mount (DONE 2026-05-04 as part of P1-B Phase 2), H2 docker log driver + `live-restore`, H3 logrotate iRedMail logs, H5 real mailflow healthcheck, H6/H7 borg-backup.sh resilience patches, HSTS, BCRYPT in iRedAdmin, container `no-new-privileges`/cap drops, kernel reboot pending. (MTA-STS + TLS-RPT promoted out of backlog to item 1 above.)
 
 ## P1-B residual user tests — ALL DONE 2026-05-04
 
