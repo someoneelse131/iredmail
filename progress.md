@@ -20,18 +20,24 @@ Active log. Pre-2026-05-01 history is in `progress-archive.md` (562-line inciden
 
 ## Open — pick next
 
-In risk × effort order. Pull from top. **P1-B Phase 2 spam-learning live + fully verified 2026-05-04 (see "What's SOLID" + "P1-B residual user tests"); P1-C Roundcube CVE pin is now top.**
+In risk × effort order. Pull from top. **P1-C done in `98c05c6` (Roundcube 1.6.15). P1-D + P1-E committed to repo 2026-05-15 — deploy on server pending.**
 
-1. **P1-C Roundcube CVE pin** — bump from 1.6.6 → 1.6.10+ in Dockerfile (CVE-2024-37383 / 42008 / 42009 / 42010). Add nginx `deny` for `/mail/composer.*`, `/mail/SQL/`, `/mail/installer/`, `/mail/INSTALL`, `/mail/UPGRADING`, `/mail/SECURITY.md`, `/mail/CHANGELOG.md`, `/mail/vendor/`, `/mail/bin/`. Dockerfile `RUN rm -rf /var/www/roundcube/installer`.
-2. **P1-D Postfix hardening** — see "P1-D values" below for the full list.
-3. **P1-E read-only mounts** — `docker-compose.yml:64-67`: append `:ro` to `./data/ssl:/etc/letsencrypt` and `./data/dkim:/var/lib/dkim`. Verify cert-reload only does SIGHUP.
-4. **P0-3 sudo NOPASSWD** — user job (visudo on server). Procedure:
+1. **DEPLOY P1-D + P1-E** — on server `mail`:
+   ```
+   cd /opt/iredmail && git pull          # or scp the two changed files
+   docker compose up -d --build iredmail # rebuild only iredmail container
+   # verify:
+   docker exec iredmail-core postconf | grep -E '(smtpd_tls_auth_only|smtpd_helo_required|disable_vrfy_command|>=TLSv1\.2|reject_unauth_destination)'
+   docker inspect iredmail-core --format '{{range .Mounts}}{{.Source}}→{{.Destination}} ro={{.RW | not}}{{println}}{{end}}' | grep -E '(ssl|dkim)'
+   # smoke-test inbound + outbound mail end-to-end, then close GH issue #1
+   ```
+2. **P0-3 sudo NOPASSWD** — user job (visudo on server). Procedure:
    ```
    sudo visudo -f /etc/sudoers.d/90-cloud-init-users
    # change:  masteradmin ALL=(ALL) NOPASSWD:ALL  →  masteradmin ALL=(ALL) ALL
    # test in NEW ssh session: `sudo whoami` must prompt for password.
    ```
-6. **P3 backlog** — see `progress-archive.md` "P3" sections. Highlights: SOGo memcached broken (floods sogo.log), H1 amavis bind-mount (DONE 2026-05-04 as part of P1-B Phase 2), H2 docker log driver + `live-restore`, H3 logrotate iRedMail logs, H5 real mailflow healthcheck, H6/H7 borg-backup.sh resilience patches, MTA-STS + TLS-RPT, HSTS, BCRYPT in iRedAdmin, container `no-new-privileges`/cap drops, kernel reboot pending.
+3. **P3 backlog** — see `progress-archive.md` "P3" sections. Highlights: SOGo memcached broken (floods sogo.log), H1 amavis bind-mount (DONE 2026-05-04 as part of P1-B Phase 2), H2 docker log driver + `live-restore`, H3 logrotate iRedMail logs, H5 real mailflow healthcheck, H6/H7 borg-backup.sh resilience patches, MTA-STS + TLS-RPT, HSTS, BCRYPT in iRedAdmin, container `no-new-privileges`/cap drops, kernel reboot pending.
 
 ## P1-B residual user tests — ALL DONE 2026-05-04
 

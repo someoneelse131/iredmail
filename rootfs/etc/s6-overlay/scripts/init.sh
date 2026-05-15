@@ -280,6 +280,33 @@ configure_postfix() {
     postconf -e "smtpd_tls_security_level = may"
     postconf -e "smtp_tls_security_level = may"
 
+    # --- P1-D Postfix hardening (2026-05-15) ---------------------------------
+    # Global hardening — applies to port 25. Submission (587) and SMTPS (465)
+    # already enforce TLS+AUTH via per-service -o overrides in master.cf above.
+    # Note: SPF policy is enforced at the amavis layer (Mail::SPF), so no
+    # check_policy_service unix:private/policyd-spf here — policyd-spf is not
+    # installed in this image and adding the call would 451-defer all inbound.
+    postconf -e "smtpd_tls_auth_only = yes"
+    postconf -e "smtpd_tls_protocols = >=TLSv1.2"
+    postconf -e "smtpd_tls_mandatory_protocols = >=TLSv1.2"
+    postconf -e "smtp_tls_protocols = >=TLSv1.2"
+    postconf -e "smtp_tls_mandatory_protocols = >=TLSv1.2"
+    postconf -e "smtpd_tls_ciphers = high"
+    postconf -e "smtpd_tls_mandatory_ciphers = high"
+    postconf -e "tls_preempt_cipherlist = yes"
+    postconf -e "smtpd_tls_eecdh_grade = ultra"
+    postconf -e "smtpd_helo_required = yes"
+    postconf -e "disable_vrfy_command = yes"
+    postconf -e "smtpd_helo_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_invalid_helo_hostname, reject_non_fqdn_helo_hostname"
+    postconf -e "smtpd_sender_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_non_fqdn_sender, reject_unknown_sender_domain"
+    postconf -e "smtpd_recipient_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_non_fqdn_recipient, reject_unknown_recipient_domain, reject_unauth_destination"
+    postconf -e "smtpd_data_restrictions = reject_unauth_pipelining"
+    postconf -e "smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination"
+    postconf -e "smtpd_sasl_authenticated_header = yes"
+    postconf -e "smtpd_tls_received_header = yes"
+    postconf -e "smtpd_tls_loglevel = 1"
+    postconf -e "smtp_tls_loglevel = 1"
+
     # MySQL lookups
     postconf -e "virtual_mailbox_domains = proxy:mysql:/etc/postfix/mysql/virtual_mailbox_domains.cf"
     postconf -e "virtual_mailbox_maps = proxy:mysql:/etc/postfix/mysql/virtual_mailbox_maps.cf"

@@ -60,10 +60,10 @@ services:
     volumes:
       # Mail storage
       - ./data/vmail:/var/vmail/vmail1
-      # DKIM keys
+      # DKIM keys (stays rw: scripts/add-domain.sh writes new .pem here via docker exec)
       - ./data/dkim:/var/lib/dkim
-      # SSL certificates
-      - ./data/ssl:/etc/letsencrypt
+      # SSL certificates (read-only: the certbot container has its own rw mount on line 133)
+      - ./data/ssl:/etc/letsencrypt:ro
       - ./data/certbot-www:/var/www/certbot:ro
       # Mailing lists
       - ./data/mlmmj:/var/vmail/mlmmj
