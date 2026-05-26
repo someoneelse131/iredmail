@@ -85,6 +85,21 @@ hc_ping_offsite() {
         || echo "WARN: hc-ping-offsite ${suffix:-/} failed" >&2
 }
 
+# Borg uses rc=1 for warnings (e.g. file changed during read). The archive
+# is still valid; treat it as success so downstream steps (offsite sync) run.
+run_borg() {
+    local subcmd="$1"
+    set +e
+    borg "$@"
+    local rc=$?
+    set -e
+    case "$rc" in
+        0) return 0 ;;
+        1) echo "WARN: borg ${subcmd} exited 1 (warning — operation completed)."; return 0 ;;
+        *) echo "ERROR: borg ${subcmd} failed with exit ${rc}" >&2; return "$rc" ;;
+    esac
+}
+
 on_exit() {
     local rc=$?
     [ -n "${DB_DUMP_TMP}" ] && rm -f "${DB_DUMP_TMP}"
@@ -133,7 +148,10 @@ echo "DB dump: $(du -h "${DB_DUMP_FILE}" | cut -f1)"
 # The repo lives under data/, so we exclude it to avoid recursion.
 echo ""
 echo "[2/3] Creating Borg archive..."
-borg create \
+# amavis-spamassassin: bayes_toks / bayes_seen / bayes_journal are constantly
+# rewritten by SA learning and not crash-consistent to copy live. Bayes state
+# is rebuildable, so we skip the whole dir rather than backing up torn files.
+run_borg create \
     --verbose \
     --stats \
     --compression zstd,3 \
@@ -147,6 +165,7 @@ borg create \
     --exclude "${PROJECT_DIR}/data/postfix-queue" \
     --exclude "${PROJECT_DIR}/data/certbot-www" \
     --exclude "${PROJECT_DIR}/data/rescue-*" \
+    --exclude "${PROJECT_DIR}/data/amavis-spamassassin" \
     "::${ARCHIVE_NAME}" \
     "${PROJECT_DIR}/data" \
     "${PROJECT_DIR}/config" \
@@ -161,7 +180,7 @@ borg create \
 # recent backup per distinct hour, so 6 of those covers ~24 h of granularity.
 echo ""
 echo "[3/3] Pruning old archives..."
-borg prune \
+run_borg prune \
     --verbose \
     --list \
     --keep-hourly 6 \
@@ -173,7 +192,7 @@ borg prune \
 if [ "$(date +%u)" = "7" ] && [ "$(date +%H)" = "00" ]; then
     echo ""
     echo "[Sunday 00:xx] Compacting repository..."
-    borg compact --verbose
+    run_borg compact --verbose
 fi
 
 # Offsite mirror to HiDrive (Ionos). Configured via /root/.config/rclone/rclone.conf
