@@ -7,8 +7,18 @@ Worst case: the VPS is gone, you have a fresh server and a copy of the Borg repo
 - A new VPS (Docker-capable, reasonable specs: 4 GB RAM, 20+ GB disk).
 - A copy of the Borg repo directory (`data/borg-repo/`). Source: offsite mirror, second backup disk, etc.
   - Primary offsite as of 2026-05-01: Ionos HiDrive WebDAV. Sub-user `hidrive-kirby-backup`, password in 1Password under "iRedMail HiDrive backup". Endpoint `https://webdav.hidrive.ionos.com/`.
-- The Borg passphrase. Either on paper, in a password manager, or inside the recovered `.env` (if you also recovered that).
+- **The Borg passphrase.** Stored in 1Password + paper copy. Without it the encrypted repo is unrecoverable, full stop.
 - DNS access for the domain so MX/A/SPF/DKIM/DMARC keep pointing at the new server's IP.
+
+### What's where (don't memorise this — it's just so the steps below make sense)
+
+| Secret / state | Lives in | Notes |
+|---|---|---|
+| `BORG_PASSPHRASE` | 1Password + paper, AND inside the recovered `.env` | The only secret that must NOT live exclusively on the VPS. |
+| `.env` (DB passwords, FIRST_MAIL_DOMAIN_ADMIN_PASSWORD, MLMMJADMIN_TOKEN, ROUNDCUBE_DES_KEY, HEALTHCHECKS_*URL, etc.) | inside every Borg archive | Step 4 below extracts it before the full restore. |
+| `vmail/`, `dkim/`, `ssl/`, `sogo/`, `mlmmj/`, `mlmmj-archive/`, `iredmail-state/`, `imapsieve_copy/`, `spamassassin/`, `db-dumps/`, plus `config/`, `rootfs/`, `scripts/`, `docker-compose.yml`, `Dockerfile` | inside every Borg archive | Step 7 restores these. |
+| `data/amavis-spamassassin/` (Bayes hashdbs) | **NOT** in the Borg archive | Excluded deliberately. After restore, `init.sh` bayes-bootstrap recreates the dir and an empty DB; Bayes rebuilds itself as users drag mail to/from Junk. No manual intervention needed; just expect slightly lower spam classification for the first ~50 user-trained messages. |
+| DNS records | registrar (Infomaniak / Ionos / Cloudflare) | Step "After restore" updates A/PTR only — MX, SPF, DKIM, DMARC reference the hostname, not the IP. |
 
 ## Recipe (≈ 20 minutes once everything is in reach)
 

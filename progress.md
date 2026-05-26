@@ -2,14 +2,14 @@
 
 Active log. Pre-2026-05-01 history is in `progress-archive.md` (562-line incident timeline + 4-agent audit findings + full P3 backlog).
 
-## Status — 2026-05-15
+## Status — 2026-05-26
 
 | Area | State |
 |---|---|
 | Postfix hardening | **P1-D live 2026-05-15** (commit `628a0ea`, image rebuilt + container recreated). Port 25 enforces TLSv1.2+, AUTH gated on TLS, HELO mandatory, VRFY off, FQDN sender/recipient checks, 5xx `reject_unauth_destination`. Submission 587 / SMTPS 465 unchanged (already strict via per-service `-o`). policyd-spf intentionally NOT wired (not installed in image; SPF enforced at amavis Mail::SPF). End-to-end smoke test passed: 127.0.0.1:25 → amavis `Passed CLEAN` → LMTP `Saved`. |
 | Mounts | **P1-E live 2026-05-15** (same commit). `./data/ssl:/etc/letsencrypt:ro` on iredmail container; certbot container keeps rw on line 133 for renewal. DKIM stays rw because `scripts/add-domain.sh:146` writes new `.pem` via `docker exec`. Verified via `docker inspect`. |
 | Mail persistence | Storage-path bug fixed 2026-04-29. Container recreate no longer loses data. 1083+ msgs restored from TB cache, all subfolders subscribed. |
-| Backup — local | Borg 4h, encrypted (`repokey-blake2`), dedup ~250×, repo ~94 MB at `/opt/iredmail/data/borg-repo`. Cron `15 */4 * * *` verified firing. Old `backup.sh` daily 02:00 still running as safety net (retire ~2026-05-13). |
+| Backup — local | Borg 4h, encrypted (`repokey-blake2`), dedup ~250×, repo ~140 MB at `/opt/iredmail/data/borg-repo`. Cron `15 */4 * * *` verified firing. Old `backup.sh` daily 02:00 still running as safety net (retire ~2026-05-13). **2026-05-26 (`6d041df`):** `borg create/prune/compact` wrapped in `run_borg()` helper so `rc=1` (warning, e.g. "file changed while we backed it up") is treated as success. Without it, transient warnings on `data/amavis-spamassassin/bayes_toks` killed the script via `set -e`, skipped the rclone offsite step, and flapped both Healthchecks DOWN/UP every few cycles. Also: `data/amavis-spamassassin/` excluded from archives — Bayes is regenerable, SDBM hashdbs are unsafe to copy live. Verified post-fix: clean borg run, `[Offsite] OK` fired, 3 amavis paths gone from new archive vs prior (dir + `bayes_toks` + `bayes_seen`). |
 | Backup — alerting | Two independent Healthchecks.io checks. Local borg: `HEALTHCHECKS_URL=…/140a8ccf-…` (existed). Offsite: `HEALTHCHECKS_OFFSITE_URL=…/5e26d866-…` (added 2026-05-02). Each gets `/start` + success + `/fail` pings, so a silent HiDrive outage alerts independently from a successful local borg. **Gotcha (2026-05-02):** Schedule-Time-Zone auf hc.io muss `Europe/Zurich` sein (nicht `UTC`), sonst feuert die Cron-Expression `15 */4 * * *` 2h verschoben gegen die Server-CEST-Pings → konstante 30min-Grace-DOWN-Alerts. Beide Checks auf `Europe/Zurich` gesetzt. |
 | Backup — offsite | **ACTIVE** (C6 done 2026-05-01, paths reorganised + alerting dedicated 2026-05-02). rclone WebDAV → Ionos HiDrive 100 GB (1.36 €/mo). Sub-user `hidrive-kirby-backup`, locked to `/backup/` (HiDrive returns 403 on writes outside it — verified). Layout: `hidrive:/backup/iredmail/data/` (borg repo) + `hidrive:/backup/iredmail/.trash/<ts>/` (versioned trash from `--backup-dir`). Mirrors after every borg run. `--backup-dir` keeps replaced/deleted segments → ransomware-from-server can't wipe history. Restore: `rclone copy hidrive:/backup/iredmail/data /opt/iredmail/data/borg-repo`. |
 | Borg key | In 1Password + paper. Server `/root/borg-key-export.txt` shredded 2026-05-01. |
@@ -31,7 +31,7 @@ In risk × effort order. Pull from top. **P1-C done in `98c05c6` (Roundcube 1.6.
    # change:  masteradmin ALL=(ALL) NOPASSWD:ALL  →  masteradmin ALL=(ALL) ALL
    # test in NEW ssh session: `sudo whoami` must prompt for password.
    ```
-3. **P3 backlog** — see `progress-archive.md` "P3" sections. Highlights: SOGo memcached broken (floods sogo.log), H1 amavis bind-mount (DONE 2026-05-04 as part of P1-B Phase 2), H2 docker log driver + `live-restore`, H3 logrotate iRedMail logs, H5 real mailflow healthcheck, H6/H7 borg-backup.sh resilience patches, HSTS, BCRYPT in iRedAdmin, container `no-new-privileges`/cap drops, kernel reboot pending. (MTA-STS + TLS-RPT promoted out of backlog to item 1 above.)
+3. **P3 backlog** — see `progress-archive.md` "P3" sections. Highlights: SOGo memcached broken (floods sogo.log), H1 amavis bind-mount (DONE 2026-05-04 as part of P1-B Phase 2), H2 docker log driver + `live-restore`, H3 logrotate iRedMail logs, H5 real mailflow healthcheck, ~~H6/H7 borg-backup.sh resilience patches~~ (H7 done 2026-05-26 via `run_borg` wrapper + amavis-spamassassin exclude), HSTS, BCRYPT in iRedAdmin, container `no-new-privileges`/cap drops, kernel reboot pending. (MTA-STS + TLS-RPT promoted out of backlog to item 1 above.)
 
 ## P1-B residual user tests — ALL DONE 2026-05-04
 
@@ -111,7 +111,7 @@ These needed a real IMAP client (Roundcube + Thunderbird) — `doveadm move` byp
    - laptop: `rm -f /tmp/bayes-pre.txt`
 4. **Server `/opt/iredmail/` git tree** still months out-of-sync with `origin/main`. Files are now even more divergent after the 2026-05-04 deploy (we scp'd 9 files in directly per Task 10 plan + the `ba7624d` hot-fix). `git pull` on server would conflict heavily. Reconcile via either: (a) `cd /opt/iredmail && sudo git fetch && sudo git reset --hard origin/main` once we trust the deploy is stable, or (b) keep the deploy-via-scp pattern and never touch git on the server. See todo.md "Cleanup ideas".
 5. **hc.io schedule TZ** (carry-over): verify after a few 4h cron cycles that no DOWN alerts repeat. Was wrong UTC → set to Europe/Zurich 2026-05-02.
-6. Pick from "Open — pick next" — top is **P1-C Roundcube CVE pin**.
+6. Pick from "Open — pick next" — top is **MTA-STS + TLS-RPT rollout** (spec `936ea95`, plan `1b75b15`; both committed, execute via subagent-driven-development).
 
 ## Open questions
 
