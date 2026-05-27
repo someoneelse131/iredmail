@@ -157,6 +157,20 @@ else
         echo "  [ERROR] Failed to generate DKIM key!"
         exit 1
     fi
+
+    # Hot-regen MTA-STS vhost (adds new mta-sts.${NEW_DOMAIN} server_name)
+    # and reload nginx. Skipped silently if regen helper is absent (first-run
+    # state where rootfs hasn't been baked in yet).
+    if docker exec iredmail-core test -x /usr/local/sbin/regen-mta-sts.sh; then
+        echo "  [+] Regenerating MTA-STS vhost and reloading nginx..."
+        if docker exec iredmail-core /usr/local/sbin/regen-mta-sts.sh \
+            && docker exec iredmail-core nginx -t \
+            && docker exec iredmail-core nginx -s reload; then
+            echo "  [OK] MTA-STS vhost reloaded"
+        else
+            echo "  [WARN] MTA-STS vhost regen/reload failed — will retake on next container restart"
+        fi
+    fi
 fi
 
 # =============================================================================
@@ -167,6 +181,7 @@ echo "Checking SSL certificate domains..."
 
 AUTOCONFIG_DOMAIN="autoconfig.${NEW_DOMAIN}"
 AUTODISCOVER_DOMAIN="autodiscover.${NEW_DOMAIN}"
+MTA_STS_DOMAIN="mta-sts.${NEW_DOMAIN}"
 CERT_UPDATED=false
 
 # Read current CERT_EXTRA_DOMAINS
@@ -194,6 +209,19 @@ else
         CURRENT_CERT_DOMAINS="$AUTODISCOVER_DOMAIN"
     else
         CURRENT_CERT_DOMAINS="${CURRENT_CERT_DOMAINS},${AUTODISCOVER_DOMAIN}"
+    fi
+    CERT_UPDATED=true
+fi
+
+# Check if MTA-STS domain is already included
+if echo "$CURRENT_CERT_DOMAINS" | grep -q "$MTA_STS_DOMAIN"; then
+    echo "  [OK] ${MTA_STS_DOMAIN} already in certificate"
+else
+    echo "  [+] Adding ${MTA_STS_DOMAIN} to certificate domains"
+    if [ -z "$CURRENT_CERT_DOMAINS" ]; then
+        CURRENT_CERT_DOMAINS="$MTA_STS_DOMAIN"
+    else
+        CURRENT_CERT_DOMAINS="${CURRENT_CERT_DOMAINS},${MTA_STS_DOMAIN}"
     fi
     CERT_UPDATED=true
 fi
@@ -296,6 +324,21 @@ echo ""
 echo "   Type:  SRV"
 echo "   Name:  _carddavs._tcp"
 echo "   Value: 0 1 443 ${HOSTNAME}"
+echo ""
+echo "----------------------------------------------"
+echo "6. MTA-STS + TLS-RPT Records (RFC 8461 / 8460)"
+echo "----------------------------------------------"
+echo "   Type:  CNAME"
+echo "   Name:  mta-sts"
+echo "   Value: ${HOSTNAME}"
+echo ""
+echo "   Type:  TXT"
+echo "   Name:  _mta-sts"
+echo "   Value: \"v=STSv1; id=$(date -u +%Y%m%dT%H%M%SZ);\""
+echo ""
+echo "   Type:  TXT"
+echo "   Name:  _smtp._tls"
+echo "   Value: \"v=TLSRPTv1; rua=mailto:tlsrpt@${FIRST_MAIL_DOMAIN}\""
 echo ""
 echo "=============================================="
 echo ""
