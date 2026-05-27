@@ -215,6 +215,30 @@ EOF
 }
 
 # =============================================================================
+# Bootstrap TLS-RPT receiver alias (RFC 8460)
+# =============================================================================
+# Creates an idempotent forwarding tlsrpt@${FIRST_MAIL_DOMAIN}
+# → postmaster@${FIRST_MAIL_DOMAIN}. INSERT IGNORE + UNIQUE KEY (address,
+# forwarding) means re-runs are no-ops. Safe on first-init AND re-run paths.
+bootstrap_tls_rpt_alias() {
+    local domain="${FIRST_MAIL_DOMAIN}"
+    local rpt_addr="tlsrpt@${domain}"
+    local dest_addr="postmaster@${domain}"
+
+    echo "Bootstrapping TLS-RPT alias: ${rpt_addr} -> ${dest_addr}"
+
+    mysql -h "${DB_HOST}" -u root -p"${MYSQL_ROOT_PASSWORD}" vmail << EOF 2>/dev/null
+INSERT IGNORE INTO alias (address, name, domain, active, created, modified)
+VALUES ('${rpt_addr}', 'TLS-RPT receiver', '${domain}', 1, NOW(), NOW());
+
+INSERT IGNORE INTO forwardings
+    (address, forwarding, domain, dest_domain, is_alias, is_mailbox, active)
+VALUES
+    ('${rpt_addr}', '${dest_addr}', '${domain}', '${domain}', 1, 0, 1);
+EOF
+}
+
+# =============================================================================
 # Generate DKIM Keys
 # =============================================================================
 generate_dkim() {
@@ -1195,6 +1219,7 @@ main() {
         configure_amavis
         configure_nginx
         configure_sogo
+        bootstrap_tls_rpt_alias
         create_iredmail_release
         echo "Configuration updates complete!"
         exit 0
@@ -1226,6 +1251,9 @@ main() {
     configure_clamav
     configure_amavis
     configure_sogo
+
+    # TLS-RPT alias (idempotent; safe to call on every start)
+    bootstrap_tls_rpt_alias
 
     # Setup logging
     setup_logging
