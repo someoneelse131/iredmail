@@ -1,0 +1,48 @@
+# =============================================================================
+# MTA-STS Policy vhost (auto-generated from /var/lib/dkim/*.pem)
+# Source of truth: /usr/local/sbin/regen-mta-sts.sh
+# DO NOT edit /etc/nginx/sites-available/mta-sts directly — regenerate.
+# =============================================================================
+
+# Redirect HTTP → HTTPS (ACME challenge stays on the default vhost)
+server {
+    listen 80;
+    listen [::]:80;
+    server_name __MTA_STS_SERVER_NAMES__;
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# HTTPS policy server
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name __MTA_STS_SERVER_NAMES__;
+
+    ssl_certificate /etc/letsencrypt/live/HOSTNAME/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/HOSTNAME/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options "nosniff" always;
+
+    access_log /var/log/nginx/mta-sts-access.log;
+    error_log /var/log/iredmail/mta-sts-error.log;
+
+    root /var/www/mta-sts;
+    index index.html;
+
+    location = /.well-known/mta-sts.txt {
+        default_type text/plain;
+        add_header Cache-Control "public, max-age=3600" always;
+    }
+
+    # Everything else 404 — no webmail/iRedAdmin leakage on these hostnames
+    location / {
+        return 404;
+    }
+}
