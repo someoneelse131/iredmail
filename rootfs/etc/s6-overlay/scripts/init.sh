@@ -547,6 +547,11 @@ configure_nginx() {
     ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
     rm -f /etc/nginx/sites-enabled/default.dpkg-dist 2>/dev/null || true
 
+    # Regenerate MTA-STS vhost from current DKIM keys (idempotent, zero-domain safe)
+    if [ -x /usr/local/sbin/regen-mta-sts.sh ]; then
+        /usr/local/sbin/regen-mta-sts.sh
+    fi
+
     # Apply custom configuration
     if [ -f "/opt/iredmail/custom/nginx/custom.conf" ]; then
         echo "Applying custom Nginx configuration..."
