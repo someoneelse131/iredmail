@@ -1,0 +1,4 @@
+version: STSv1
+mode: testing
+mx: mail.kirby.rocks
+max_age: 86400
