@@ -1121,8 +1121,12 @@ create_sogo_config() {
     SOGoIMAPServer = "imap://localhost:143";
     SOGoSieveServer = "sieve://localhost:4190";
 
-    // SMTP settings (use port 25 for local delivery)
-    SOGoSMTPServer = "smtp://localhost:25";
+    // SMTP settings: submission via implicit TLS on 465.
+    // Port 25 only advertises AUTH after STARTTLS (smtpd_tls_auth_only=yes),
+    // and SOGo does not STARTTLS on smtp:// — so authenticated submission
+    // must use smtps:// (TLS first, then AUTH PLAIN). Must use ${HOSTNAME}
+    // (not localhost): SOGo verifies the relay cert, whose CN is ${HOSTNAME}.
+    SOGoSMTPServer = "smtps://${HOSTNAME}:465";
     SOGoMailingMechanism = smtp;
     SOGoSMTPAuthenticationType = PLAIN;
 
