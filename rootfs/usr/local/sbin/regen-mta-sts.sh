@@ -37,10 +37,26 @@ fi
 
 server_names="${names[*]}"
 
+# Cert hostname for the policy server's TLS cert. The template ships a literal
+# HOSTNAME placeholder (same convention as sites-available/default, which
+# init.sh substitutes). Resolve it the way init.sh does: the HOSTNAME env
+# (from .env / compose `hostname:`), falling back to /etc/mailname. Without
+# this, nginx fails to start on a literal /etc/letsencrypt/live/HOSTNAME/ path.
+cert_host="${HOSTNAME:-}"
+if [ -z "$cert_host" ] && [ -r /etc/mailname ]; then
+    cert_host="$(cat /etc/mailname)"
+fi
+if [ -z "$cert_host" ]; then
+    echo "regen-mta-sts: cannot determine cert hostname (HOSTNAME unset, /etc/mailname missing) — abort" >&2
+    exit 1
+fi
+
 # Substitute and write atomically (write tmp, rename) so a partial write
 # can never be picked up by an nginx reload mid-flight.
 tmpfile=$(mktemp "${OUT}.XXXXXX")
-sed "s|__MTA_STS_SERVER_NAMES__|${server_names}|g" "$TMPL" > "$tmpfile"
+sed -e "s|__MTA_STS_SERVER_NAMES__|${server_names}|g" \
+    -e "s|/etc/letsencrypt/live/HOSTNAME/|/etc/letsencrypt/live/${cert_host}/|g" \
+    "$TMPL" > "$tmpfile"
 chmod 644 "$tmpfile"
 mv "$tmpfile" "$OUT"
 
