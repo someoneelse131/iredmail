@@ -1,0 +1,9 @@
+#!/command/with-contenv bash
+set -e
+
+echo "Starting memcached (SOGo session/preference cache)..."
+
+# SOGo connects to 127.0.0.1:11211 by default (no SOGoMemcached* override in
+# sogo.conf). Run in the foreground so s6 supervises it; drop privileges to an
+# unprivileged user (the memcached package does not create its own user here).
+exec memcached -u nobody -l 127.0.0.1 -p 11211 -m 64

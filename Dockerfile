@@ -106,6 +106,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # SOGo Groupware
     # -------------------------------------------------------------------------
     sogo sogo-activesync \
+    # memcached: SOGo's shared session/preference cache. Without it SOGo logs
+    # "SERVER HAS FAILED AND IS DISABLED UNTIL TIMED RETRY" on every request and
+    # cannot reliably hold the session-stored password used for SMTP AUTH, which
+    # surfaces in webmail as intermittent "smtp could not authenticate" on send.
+    memcached \
     # -------------------------------------------------------------------------
     # Database Client
     # -------------------------------------------------------------------------
