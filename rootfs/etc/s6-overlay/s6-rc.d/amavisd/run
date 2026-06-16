@@ -10,5 +10,14 @@ foreground { rm -f /run/amavis/amavisd.pid /run/amavis/amavisd.lock }
 foreground { mkdir -p /run/amavis }
 foreground { chown -R amavis:amavis /run/amavis }
 
+# Self-heal DKIM signing key ownership. amavisd-new loads every key listed in
+# 50-user (dkim_key ...) at config-parse time and runs as user "amavis"; if any
+# /var/lib/dkim/*.pem is owned by another user (e.g. debian-spamd:0600, as the
+# image's initial key generation produces), the parse fails with "Permission
+# denied" and amavisd crash-loops, silently stalling all mail in the queue.
+# Keys live on the ./data/dkim bind mount, so fixing them here is idempotent and
+# persists. add-domain.sh already chowns keys it creates; this covers the rest.
+foreground { sh -c "chown amavis:amavis /var/lib/dkim/*.pem 2>/dev/null; chmod 0400 /var/lib/dkim/*.pem 2>/dev/null; true" }
+
 # Start amavisd in foreground mode
 /usr/sbin/amavisd-new foreground
