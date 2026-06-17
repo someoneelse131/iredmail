@@ -20,6 +20,18 @@ Active log. Pre-2026-05-01 history is in `progress-archive.md` (562-line inciden
 | Permissions | `.env` 600. `data/backup/*.tar.gz` 600. All `privkey*.pem` 600. UID alignment vmail 2000:2000 host↔container. |
 | TLS | Cert valid until 2026-07-19, ECDSA, certbot renewal cron OK. |
 
+## Deployments — 2026-06-17 (component version bumps)
+
+All built + recreated on `mail` via repo→pull→`docker compose build iredmail`→`up -d iredmail`. Container `healthy` after each, all core ports listening (25/143/443/465/587/993 + 7777 iRedAPD + 11211 memcached). Rollback image tags kept on server: `iredmail-custom:{pre-2.8.1,pre-iredapd61,pre-rc1616}`.
+
+- **iRedAdmin 2.7 → 2.8.1** (`bac922d` + `3497063`). 2.8 security fix (password hash accepted as plaintext) + `crypt`→`passlib`. **Gotcha:** 2.8 needs the `passlib` pip package, which wasn't in our pip block → bumping the version alone gave **502** on `/iredadmin/login` (uWSGI app crash). Fixed by adding `'passlib'` to the `pip3 install` block (`3497063`). Verified: login page 200, `iredpwd` round-trip OK for SSHA512 + SSHA (our schemes). fail2ban sed-patch on `controllers/sql/basic.py` still applies cleanly (target lines 8 + 74 unchanged in 2.8.1).
+- **iRedAPD 5.6.0 → 6.1** (`98711a5`). 6.0 adds SQLAlchemy 1.4+2.0 support; SPF/notify fixes. No new mandatory deps for the daemon (`multipart` only used by the upgrade tool we don't run; web.py is embedded). Verified: `__version__=6.1`, daemon listening on `127.0.0.1:7777`, test policy request → `action=DUNNO` (correct pass-through incl. DB lookup).
+- **Roundcube 1.6.15 → 1.6.16** (`890b5bd`). Security batch (pre-auth SQLi in `virtuser_query`, stored XSS, SSRF/remote-image bypasses, pre-auth file-delete, LDAP code-injection). Same 1.6 LTS line, drop-in (no DB schema change). Verified: `RCMAIL_VERSION=1.6.16`, `/mail/` 200, error log clean. Stayed on 1.6 LTS — **not** 1.7.x (feature series; container PHP is 8.1.2).
+- **Dropped dead `IREDMAIL_VERSION` ARG** (`1017d86`). Was never referenced in the build — purely nominal. iRedMail "core" components (postfix/dovecot/amavis/clamav) come from Ubuntu `apt`, not a versioned iRedMail package, so there is no "core 1.8.x" to install here.
+- **Deploy gotcha:** `git pull` on `/opt/iredmail` died once on root-owned `.git/objects` (leftover from a past root git op). Fixed via `sudo chown -R masteradmin:masteradmin /opt/iredmail/.git` (passwordless sudo works on `mail`). `.git` metadata only — not the data tree.
+- Also deployed in passing (was committed `67fbb4d` between bumps): MTA-STS vhost now serves ACME http-01 on port 80 instead of redirecting to HTTPS.
+- Cleanup: removed stale `iredmail-buildtest:latest` image (1.5 GB) from `mail`.
+
 ## Open — pick next
 
 In risk × effort order. Pull from top. **P1-C done in `98c05c6` (Roundcube 1.6.15). P1-D + P1-E deployed + verified 2026-05-15 (`628a0ea`). GH issue #1 closeable. MTA-STS + TLS-RPT spec+plan ready, not yet executed.**
