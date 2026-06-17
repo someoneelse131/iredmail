@@ -38,13 +38,7 @@ All built + recreated on `mail` via repo→pull→`docker compose build iredmail
 In risk × effort order. Pull from top. **P1-C done in `98c05c6` (Roundcube 1.6.15). P1-D + P1-E deployed + verified 2026-05-15 (`628a0ea`). GH issue #1 closeable. MTA-STS + TLS-RPT testing-mode live 2026-06-17 (Tasks 0-15 done) — only the enforce switch remains.**
 
 1. **MTA-STS enforce switch (~2026-07-01)** — after ~2 weeks of clean TLS-RPT reports at `tlsrpt@kirby.rocks`. Edit `rootfs/var/www/mta-sts/.well-known/mta-sts.txt`: `mode: enforce`, `max_age: 604800`. Bump the `id` in all 4 `_mta-sts.<dom>` TXT records (user pflegt im Registrar: Infomaniak chiaruzzi.ch, Ionos for the other 3). Single commit + container rebuild (file ships via `COPY rootfs/ /`, so a rebuild is needed to bake it into the image). Plan ref: `docs/superpowers/plans/2026-05-15-mta-sts-rollout.md` Task 16.
-2. **P0-3 sudo NOPASSWD** — user job (visudo on server). Procedure:
-   ```
-   sudo visudo -f /etc/sudoers.d/90-cloud-init-users
-   # change:  masteradmin ALL=(ALL) NOPASSWD:ALL  →  masteradmin ALL=(ALL) ALL
-   # test in NEW ssh session: `sudo whoami` must prompt for password.
-   ```
-3. **P3 backlog** — see `progress-archive.md` "P3" sections. Highlights: SOGo memcached broken (floods sogo.log), H1 amavis bind-mount (DONE 2026-05-04 as part of P1-B Phase 2), H2 docker log driver + `live-restore`, H3 logrotate iRedMail logs, H5 real mailflow healthcheck, ~~H6/H7 borg-backup.sh resilience patches~~ (H7 done 2026-05-26 via `run_borg` wrapper + amavis-spamassassin exclude), HSTS, BCRYPT in iRedAdmin, container `no-new-privileges`/cap drops, kernel reboot pending. (MTA-STS + TLS-RPT promoted out of backlog to item 1 above.)
+2. **P3 backlog** — see `progress-archive.md` "P3" sections. Highlights: SOGo memcached broken (floods sogo.log), H1 amavis bind-mount (DONE 2026-05-04 as part of P1-B Phase 2), H2 docker log driver + `live-restore`, H3 logrotate iRedMail logs, H5 real mailflow healthcheck, ~~H6/H7 borg-backup.sh resilience patches~~ (H7 done 2026-05-26 via `run_borg` wrapper + amavis-spamassassin exclude), HSTS, BCRYPT in iRedAdmin, container `no-new-privileges`/cap drops, kernel reboot pending. (MTA-STS + TLS-RPT promoted out of backlog to item 1 above.)
 
 ## P1-B residual user tests — ALL DONE 2026-05-04
 
