@@ -6,6 +6,7 @@ Active log. Pre-2026-05-01 history is in `progress-archive.md` (562-line inciden
 
 | Area | State |
 |---|---|
+| MTA-STS + TLS-RPT | **Testing-mode live 2026-06-17** for all 4 domains (chiaruzzi.ch, kirby.rocks, maisonsoave.ch, purfacted.com). Policy `mode: testing, max_age: 86400, mx: mail.kirby.rocks` served from `https://mta-sts.<dom>/.well-known/mta-sts.txt` (valid cert, 11-SAN incl. 4 `mta-sts.*`, expires 2026-09-15). `_mta-sts` + `_smtp._tls` TXT live in all 4 zones; TLS-RPT receiver `tlsrpt@kirby.rocks → postmaster@kirby.rocks` (init.sh bootstrap, e2e-verified). nginx vhost auto-regenerated from `/var/lib/dkim/*.pem` via `/usr/local/sbin/regen-mta-sts.sh` (called by init.sh + add-domain.sh; add-domain regression-tested + cleaned up 2026-06-17). **ACME gotcha fixed (`67fbb4d`):** the port-80 vhost redirect caught `/.well-known/acme-challenge/` → cert issuance for `mta-sts.*` failed; added a `^~` acme location served from the webroot before the redirect. **Switch to enforce after ~2026-07-01** if TLS-RPT reports clean: bump `mode: enforce`, `max_age: 604800`, and the `id` in each `_mta-sts` TXT (file ships via `COPY rootfs/ /` → needs a rebuild to bake in). |
 | Postfix hardening | **P1-D live 2026-05-15** (commit `628a0ea`, image rebuilt + container recreated). Port 25 enforces TLSv1.2+, AUTH gated on TLS, HELO mandatory, VRFY off, FQDN sender/recipient checks, 5xx `reject_unauth_destination`. Submission 587 / SMTPS 465 unchanged (already strict via per-service `-o`). policyd-spf intentionally NOT wired (not installed in image; SPF enforced at amavis Mail::SPF). End-to-end smoke test passed: 127.0.0.1:25 → amavis `Passed CLEAN` → LMTP `Saved`. |
 | Mounts | **P1-E live 2026-05-15** (same commit). `./data/ssl:/etc/letsencrypt:ro` on iredmail container; certbot container keeps rw on line 133 for renewal. DKIM stays rw because `scripts/add-domain.sh:146` writes new `.pem` via `docker exec`. Verified via `docker inspect`. |
 | Mail persistence | Storage-path bug fixed 2026-04-29. Container recreate no longer loses data. 1083+ msgs restored from TB cache, all subfolders subscribed. |
@@ -34,9 +35,9 @@ All built + recreated on `mail` via repo→pull→`docker compose build iredmail
 
 ## Open — pick next
 
-In risk × effort order. Pull from top. **P1-C done in `98c05c6` (Roundcube 1.6.15). P1-D + P1-E deployed + verified 2026-05-15 (`628a0ea`). GH issue #1 closeable. MTA-STS + TLS-RPT spec+plan ready, not yet executed.**
+In risk × effort order. Pull from top. **P1-C done in `98c05c6` (Roundcube 1.6.15). P1-D + P1-E deployed + verified 2026-05-15 (`628a0ea`). GH issue #1 closeable. MTA-STS + TLS-RPT testing-mode live 2026-06-17 (Tasks 0-15 done) — only the enforce switch remains.**
 
-1. **MTA-STS + TLS-RPT rollout** — execute the implementation plan via subagent-driven-development. Spec: `docs/superpowers/specs/2026-05-15-mta-sts-rollout-design.md` (`936ea95`). Plan: `docs/superpowers/plans/2026-05-15-mta-sts-rollout.md` (`1b75b15`). 16 tasks; Tasks 9 + 12 pause for user-side DNS edits (Infomaniak for chiaruzzi.ch, Ionos for the other 3). After 2 weeks of clean TLS-RPT reports → enforce switch.
+1. **MTA-STS enforce switch (~2026-07-01)** — after ~2 weeks of clean TLS-RPT reports at `tlsrpt@kirby.rocks`. Edit `rootfs/var/www/mta-sts/.well-known/mta-sts.txt`: `mode: enforce`, `max_age: 604800`. Bump the `id` in all 4 `_mta-sts.<dom>` TXT records (user pflegt im Registrar: Infomaniak chiaruzzi.ch, Ionos for the other 3). Single commit + container rebuild (file ships via `COPY rootfs/ /`, so a rebuild is needed to bake it into the image). Plan ref: `docs/superpowers/plans/2026-05-15-mta-sts-rollout.md` Task 16.
 2. **P0-3 sudo NOPASSWD** — user job (visudo on server). Procedure:
    ```
    sudo visudo -f /etc/sudoers.d/90-cloud-init-users
