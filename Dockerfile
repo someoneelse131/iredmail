@@ -15,7 +15,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG S6_OVERLAY_VERSION=3.1.6.2
 ARG IREDMAIL_VERSION=1.6.8
 ARG ROUNDCUBE_VERSION=1.6.15
-ARG IREDAPD_VERSION=5.6.0
+ARG IREDAPD_VERSION=6.1
 ARG IREDADMIN_VERSION=2.8.1
 
 # =============================================================================
