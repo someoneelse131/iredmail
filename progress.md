@@ -47,7 +47,13 @@ State-check found Gruppe C ("daemon.json + logrotate + kernel reboot") was far l
 - **H2 daemon.json: low-value but staged.** Docker's per-container json logs are tiny (444K/136K/88K/24K) — no runaway. So NO disruptive `systemctl restart docker` window is justified; the file is just installed dormant and its `log-opts` (50m×5) apply at the next `docker compose up -d` recreate we do anyway; `live-restore` at the next docker restart.
 - **H3 logrotate: genuinely needed.** `maillog` was 202M, `dovecot.log` 55M, `nginx-error.log` 49M — never rotated. The archive's "maillog double-line bug" is gone (tail shows clean single lines).
 
-Versioned host files added to repo at `host/etc/docker/daemon.json` + `host/etc/logrotate.d/iredmail` (these live on the HOST, not in the container image / `rootfs/`). DR install steps documented in `README-DISASTER-RECOVERY.md` → "Host-level config". **Install on server is a USER step** (sudo writes to `/etc`) — see the command block handed over 2026-06-17. Non-disruptive: no container restart, copytruncate rotation.
+Versioned host files added to repo at `host/etc/docker/daemon.json` + `host/etc/logrotate.d/iredmail` (these live on the HOST, not in the container image / `rootfs/`). DR install steps documented in `README-DISASTER-RECOVERY.md` → "Host-level config".
+
+**INSTALLED + VERIFIED on server 2026-06-17** (via `ssh mail`, non-disruptive — no container restart, no reboot):
+- `/etc/logrotate.d/iredmail` installed; `logrotate -d` parsed clean; forced first rotation reclaimed ~306M (`maillog` 202M→0, `dovecot.log` 55M→0, `nginx-error.log` 49M→0, data preserved in `.1`). **copytruncate verified safe with iRedMail's rsyslog**: after truncate, a port-25 probe produced fresh `maillog` lines, `du`≈`ls` (750 B / 4K) → NOT sparse, rsyslog resumed at offset 0 cleanly. Daily rotation auto-runs from now.
+- `/etc/docker/daemon.json` installed; `dockerd --validate` → `configuration OK`. `log-opts` (50m×5) apply at next container recreate; `live-restore` at next docker restart. No restart forced (json logs were tiny: 444K/136K/88K/24K — nothing to reclaim).
+- apt: `ca-certificates` + `libjcat1` upgraded (security/dep), `fwupd` held back by phased-update (irrelevant on a VPS). No reboot-required. Old kernel `6.8.0-90` retained intentionally as Ubuntu fallback.
+- Note: `masteradmin` is in the `docker` group on `mail`, so `docker`/`docker compose` run without sudo there (only `/etc` writes + `apt` need sudo).
 
 ## P1-B residual user tests — ALL DONE 2026-05-04
 
