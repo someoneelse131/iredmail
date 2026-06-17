@@ -192,6 +192,7 @@ RUN pip3 install --no-cache-dir \
     'dnspython' \
     'netifaces' \
     'bcrypt' \
+    'passlib' \
     'simplejson' \
     'SQLAlchemy>=1.3.16' \
     'uwsgi' \
