@@ -4,11 +4,19 @@
 # DO NOT edit /etc/nginx/sites-available/mta-sts directly — regenerate.
 # =============================================================================
 
-# Redirect HTTP → HTTPS (ACME challenge stays on the default vhost)
+# Redirect HTTP → HTTPS, except Let's Encrypt http-01 challenges.
 server {
     listen 80;
     listen [::]:80;
     server_name __MTA_STS_SERVER_NAMES__;
+
+    # The http-01 challenge MUST be served as plain HTTP from the shared
+    # webroot. Without this, cert issuance/renewal for the mta-sts.<dom>
+    # hostnames follows the redirect to HTTPS and fails, since the cert does
+    # not yet cover the name. `^~` outranks the catch-all `location /` below.
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
 
     location / {
         return 301 https://$host$request_uri;
