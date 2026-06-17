@@ -1,0 +1,19 @@
+# iRedMail container logs (bind-mounted to host at /opt/iredmail/data/logs/).
+# copytruncate: the rsyslog/nginx/sogo processes run INSIDE the container and
+# hold these files open; we can't HUP them from the host, so copy-then-truncate
+# the open inode in place instead of rename+create.
+# Installed on host as /etc/logrotate.d/iredmail (NOT part of the container image).
+/opt/iredmail/data/logs/maillog
+/opt/iredmail/data/logs/dovecot.log
+/opt/iredmail/data/logs/nginx-error.log
+/opt/iredmail/data/logs/sogo.log
+/opt/iredmail/data/logs/auth.log
+{
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}

@@ -98,6 +98,19 @@ sudo /opt/iredmail/scripts/borg-backup.sh    # take a fresh backup post-restore
 - **Test mail flow**: send to and from an external address (e.g. via a personal Gmail). Check `data/logs/maillog`.
 - **Restart the Borg cron**: `setup.sh` already installs `/etc/cron.d/iredmail-borg-backup`. First scheduled run is at the next `*:15` per 4-h schedule.
 
+## Host-level config (NOT in the container image)
+
+Two files live on the host, outside the Borg repo and outside `rootfs/` (which is the *container* filesystem). Versioned copies are in `host/` in this repo — install them after a fresh setup:
+
+```bash
+sudo install -m 644 host/etc/docker/daemon.json /etc/docker/daemon.json   # log-rotation + live-restore; applies on next docker (re)start
+sudo install -m 644 host/etc/logrotate.d/iredmail /etc/logrotate.d/iredmail
+sudo logrotate -d /etc/logrotate.d/iredmail   # dry-run to confirm it parses
+```
+
+- `daemon.json`: bounds Docker's per-container json logs to 50m × 5 and enables `live-restore` (containers survive a Docker daemon restart). `log-opts` only apply to containers created *after* the daemon picks up the file, so they take effect on the next `docker compose up -d` recreate, not retroactively.
+- `logrotate.d/iredmail`: rotates the bind-mounted container logs under `data/logs/` (`copytruncate`, daily, keep 14) so `maillog`/`dovecot.log`/`nginx-error.log` don't grow unbounded.
+
 ## If you only have the passphrase but no repo
 
 Sorry — repo is gone, backups are unrecoverable. The whole point of having an offsite copy is to make sure that scenario doesn't happen.
