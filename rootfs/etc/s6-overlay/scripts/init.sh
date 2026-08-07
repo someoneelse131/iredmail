@@ -595,8 +595,27 @@ configure_clamav() {
     mkdir -p /var/log/clamav /run/clamav /var/lib/clamav
     chown -R clamav:clamav /var/lib/clamav /var/log/clamav /run/clamav
 
-    # Note: Virus definitions will be downloaded by the ClamAV s6 service
-    # We just ensure directories exist with proper permissions here
+    # Let freshclam hand new signatures to a running clamd instead of needing a
+    # daemon restart. Ubuntu ships EnableReloadCommand=false, so freshclam only
+    # logged "Clamd was NOT notified: The RELOAD command is disabled" and fresh
+    # signatures sat on disk unused until the next container restart.
+    #
+    # RELOAD is the narrowest of clamd's control commands (it re-reads the
+    # signature DB; it cannot shut clamd down or leak stats, which stay off) and
+    # ClamAV reloads concurrently, so there is no scan outage while it swaps.
+    # Idempotent: rewrites the value in place, or appends if the key is absent.
+    if grep -q '^EnableReloadCommand' /etc/clamav/clamd.conf 2>/dev/null; then
+        sed -i 's/^EnableReloadCommand .*/EnableReloadCommand true/' /etc/clamav/clamd.conf
+    else
+        echo 'EnableReloadCommand true' >> /etc/clamav/clamd.conf
+    fi
+
+    # Note: signature updates are handled by the "freshclam" s6 service (daemon
+    # mode, hourly). The clamav service only bootstrap-downloads when the DB is
+    # missing entirely — that check is `[ ! -f main.cvd ]`, so before the
+    # freshclam service existed the signatures silently froze at whatever the
+    # image build produced (they were 7 months stale on 2026-08-07, which made
+    # clamd refuse to start after an apt bump to ClamAV 1.5.3).
 }
 
 configure_amavis() {

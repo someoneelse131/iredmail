@@ -16,10 +16,17 @@ chown -R clamav:clamav /run/clamav /var/lib/clamav /var/log/clamav
 # Clean stale files
 rm -f /run/clamav/clamd.pid /run/clamav/clamd.ctl
 
-# Wait for any other freshclam process to finish
-while pgrep -x freshclam > /dev/null 2>&1; do
-    echo "Waiting for freshclam to finish..."
+# Wait for a concurrent freshclam to finish — but NEVER indefinitely.
+# Since 2026-08-07 a freshclam DAEMON runs permanently (s6 service "freshclam"),
+# so the original unbounded `while pgrep -x freshclam` would block clamd forever
+# on every restart. freshclam downloads into a temp dir and renames the database
+# into place, so starting clamd mid-update is safe regardless; this wait is only
+# a courtesy to avoid a pointless double-load on first boot.
+waited=0
+while pgrep -x freshclam > /dev/null 2>&1 && [ "$waited" -lt 60 ]; do
+    echo "Waiting for freshclam to finish... (${waited}s)"
     sleep 2
+    waited=$((waited + 2))
 done
 
 # Download virus definitions if not present

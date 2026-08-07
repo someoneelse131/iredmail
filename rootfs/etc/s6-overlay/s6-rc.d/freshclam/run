@@ -1,0 +1,36 @@
+#!/command/with-contenv bash
+set -e
+
+# =============================================================================
+# freshclam — ClamAV signature updater (daemon mode)
+# =============================================================================
+# Added 2026-08-07. Before this service existed nothing ever updated the virus
+# signatures: the clamav service only downloads them when the DB is missing
+# entirely (`[ ! -f main.cvd ]`), which is a bootstrap, not an update path. The
+# signatures therefore froze at whatever the image build produced and were 7
+# months stale before anyone noticed — at which point an apt bump to ClamAV
+# 1.5.3 refused to load them ("Can't verify database integrity", because old
+# CVDs lack the detached .sign file that 1.5.3 requires) and clamd crash-looped.
+#
+# freshclam.conf sets `Checks 24`, i.e. hourly. It hands new signatures to a
+# running clamd via the RELOAD command, which init.sh enables in clamd.conf
+# (Ubuntu ships it disabled), so updates go live without restarting clamd.
+# =============================================================================
+
+if [ "${DISABLE_CLAMAV}" = "YES" ]; then
+    echo "ClamAV disabled, freshclam not starting..."
+    exec sleep infinity
+fi
+
+echo "Starting freshclam (signature updater)..."
+
+mkdir -p /var/lib/clamav /var/log/clamav
+chown clamav:clamav /var/lib/clamav /var/log/clamav
+
+# Stale lock from an unclean shutdown would make freshclam exit immediately.
+rm -f /var/lib/clamav/freshclam.pid /var/log/clamav/freshclam.log.lock
+
+# -d       daemon mode (periodic checks per `Checks` in freshclam.conf)
+# --foreground  stay in the foreground so s6 can supervise and restart it
+# --stdout      log to stdout so `docker logs` sees update activity
+exec s6-setuidgid clamav freshclam -d --foreground --stdout
