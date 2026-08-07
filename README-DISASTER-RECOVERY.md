@@ -100,16 +100,41 @@ sudo /opt/iredmail/scripts/borg-backup.sh    # take a fresh backup post-restore
 
 ## Host-level config (NOT in the container image)
 
-Two files live on the host, outside the Borg repo and outside `rootfs/` (which is the *container* filesystem). Versioned copies are in `host/` in this repo — install them after a fresh setup:
+Several files live on the host, outside the Borg repo and outside `rootfs/` (which is the *container* filesystem). Versioned copies are in `host/` and `scripts/` in this repo — install them after a fresh setup:
 
 ```bash
+# Docker logging + container log rotation
 sudo install -m 644 host/etc/docker/daemon.json /etc/docker/daemon.json   # log-rotation + live-restore; applies on next docker (re)start
 sudo install -m 644 host/etc/logrotate.d/iredmail /etc/logrotate.d/iredmail
 sudo logrotate -d /etc/logrotate.d/iredmail   # dry-run to confirm it parses
+
+# Local recursive DNS resolver — REQUIRED for working URI blocklists
+sudo apt-get install -y unbound
+sudo install -m 644 host/etc/unbound/unbound.conf.d/iredmail.conf /etc/unbound/unbound.conf.d/iredmail.conf
+sudo unbound-checkconf && sudo systemctl restart unbound
+sudo mkdir -p /etc/systemd/resolved.conf.d
+sudo install -m 644 host/etc/systemd/resolved.conf.d/unbound.conf /etc/systemd/resolved.conf.d/unbound.conf
+sudo systemctl restart systemd-resolved
+
+# Weekly SpamAssassin ruleset refresh
+sudo install -m 644 scripts/sa-update-cron /etc/cron.d/iredmail-sa-update
 ```
 
 - `daemon.json`: bounds Docker's per-container json logs to 50m × 5 and enables `live-restore` (containers survive a Docker daemon restart). `log-opts` only apply to containers created *after* the daemon picks up the file, so they take effect on the next `docker compose up -d` recreate, not retroactively.
 - `logrotate.d/iredmail`: rotates the bind-mounted container logs under `data/logs/` (`copytruncate`, daily, keep 14) so `maillog`/`dovecot.log`/`nginx-error.log` don't grow unbounded.
+- `unbound` + `resolved.conf.d/unbound.conf`: **not optional if you care about spam filtering.** Shared/provider resolvers are refused by URIBL (and eventually Spamhaus), which silently disables every URI blocklist in SpamAssassin. unbound does full local recursion so queries leave from this server's own IP. Do NOT add forwarders, and do NOT set `dns:` on the container in `docker-compose.yml` (it would break container-name resolution to the DB). See the header comments in both files.
+- `sa-update-cron` → `scripts/sa-update.sh`: weekly ruleset refresh. `init.sh` also runs `sa-update` at every container start, so this only covers the gap between restarts.
+
+**Verify the host-level DNS/spam setup after install:**
+
+```bash
+# URIBL must ANSWER, not refuse. 127.0.0.14 = ok, 127.0.0.1 = still blocked.
+dig +short A test.uribl.com.multi.uribl.com
+docker exec iredmail-core dig +short A test.uribl.com.multi.uribl.com   # same from inside
+docker exec iredmail-core getent hosts db                               # container DNS still intact
+```
+
+Ongoing canary: if `URIBL_BLOCKED` shows up in the `X-Spam-Status` header of delivered mail, the resolver setup has regressed.
 
 ## If you only have the passphrase but no repo
 
