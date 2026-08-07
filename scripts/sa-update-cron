@@ -1,0 +1,9 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Wöchentliches SpamAssassin-Regel-Update, sonntags 04:20.
+# Versatz gegen borg (04:15) und e2scrub (03:10/03:30), damit sich die Jobs
+# nicht überlappen. Startet amavisd nur neu, wenn sa-update wirklich etwas
+# installiert hat UND das neue Regelwerk --lint besteht.
+# Auf dem Host installieren als /etc/cron.d/iredmail-sa-update
+20 4 * * 0 root /opt/iredmail/scripts/sa-update.sh >> /opt/iredmail/data/logs/sa-update.log 2>&1

@@ -749,6 +749,48 @@ EOF
     chown -R vmail:vmail /var/lib/dovecot/sieve/imap
     chmod 644 /var/lib/dovecot/sieve/imap/*.sieve /var/lib/dovecot/sieve/imap/*.svbin 2>/dev/null || true
 
+    # 7) Refresh the SpamAssassin ruleset.
+    #
+    #    The Ubuntu `spamassassin` package ships a frozen ruleset and sa-update
+    #    had never run here, which silently disabled spam filtering entirely:
+    #    the stock 3.4.6 rules query the (decommissioned) Validity DNSBLs with
+    #    check_rbl_txt() and no return-code filter. Those zones now answer EVERY
+    #    query with 127.255.255.255, so CERTIFIED (-3) + SAFE (-2) + RPBL
+    #    (+1.284) fired on every message = a standing -3.72 on all inbound mail.
+    #    Upstream fixed this long ago (return-code filter '^127\.0\.0\.' plus
+    #    dedicated *_BLOCKED rules scored 0); we simply never pulled it.
+    #
+    #    MUST run at runtime, NOT at build time: docker-compose.yml bind-mounts
+    #    ./data/spamassassin over /var/lib/spamassassin, which would mask any
+    #    ruleset baked into the image. Running it here also means the rules
+    #    persist across container recreates via that same bind mount.
+    #
+    #    sa-update exit codes: 0 = updated, 1 = already current (NOT an error),
+    #    >=2 = real failure. Never fatal — a spam ruleset that is a few days
+    #    stale must not stop the mail server from booting. The static safety net
+    #    in /etc/spamassassin/99_local_overrides.cf keeps the Validity rules at 0
+    #    even if every update from here on fails.
+    echo "Refreshing SpamAssassin rules (sa-update)..."
+    mkdir -p /var/lib/spamassassin
+    local sa_rc=0
+    sa-update || sa_rc=$?
+    case "$sa_rc" in
+        0) echo "  sa-update: new ruleset installed." ;;
+        1) echo "  sa-update: ruleset already current." ;;
+        *) echo "  WARNING: sa-update failed (rc=${sa_rc}); continuing with the" \
+                "ruleset already on disk." ;;
+    esac
+
+    # Lint is advisory only: a broken ruleset must not stop the mail server from
+    # booting. Capture into a variable rather than piping — a pipeline's status
+    # is that of its LAST element, so `... | sed` would always look successful
+    # and swallow the failure.
+    local lint_out
+    if ! lint_out="$(spamassassin --lint 2>&1)"; then
+        echo "  WARNING: spamassassin --lint reported problems:"
+        printf '%s\n' "$lint_out" | sed 's/^/    /'
+    fi
+
     local n
     n="$(ls /var/lib/dkim/*.pem 2>/dev/null | wc -l)"
     echo "Amavis configured: spam scoring on, DKIM signing for ${n} domain(s)."

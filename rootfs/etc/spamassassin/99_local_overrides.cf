@@ -1,0 +1,48 @@
+# =============================================================================
+# Local SpamAssassin overrides
+#
+# Loaded from /etc/spamassassin/ (site config dir) after the stock rules in
+# /usr/share/spamassassin/. Ships via `COPY rootfs/ /` in the Dockerfile, so a
+# change here needs an image rebuild + container recreate to take effect.
+#
+# NOTE: /etc/mail/spamassassin is a symlink to /etc/spamassassin on Debian /
+# Ubuntu, so this single file covers both paths.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Validity (ex-Return Path / Habeas) DNSBLs — DISABLED (2026-08-07)
+#
+# All three zones are decommissioned and now answer EVERY query with:
+#   A   127.255.255.255
+#   TXT "Excessive Number of Queries | https://knowledge.validity.com/..."
+#
+# The stock rules use check_rbl_txt() / check_rbl() with no return-code filter,
+# so all three matched on every single sender IP (verified: even 127.0.0.1 and
+# 8.8.8.8 "hit" the certification whitelist). Standing effect on every inbound
+# message:
+#
+#   RCVD_IN_VALIDITY_CERTIFIED  -3.000   (bogus whitelist credit)
+#   RCVD_IN_VALIDITY_SAFE       -2.000   (bogus whitelist credit)
+#   RCVD_IN_VALIDITY_RPBL       +1.284   (bogus blocklist penalty)
+#   ------------------------------------
+#   net                         -3.716
+#
+# With $sa_tag2_level_deflt = 5.0 that put a -3.72 floor under every message and
+# effectively disabled spam tagging (723 "Passed CLEAN" vs 2 "Passed SPAM" in
+# the log before this fix). Setting a score of 0 both zeroes the rule and makes
+# SpamAssassin skip the (useless) DNS lookup entirely.
+#
+# Upstream already fixed this: the current sa-update ruleset adds a return-code
+# filter ('^127\.0\.0\.') to the rules, adds dedicated *_BLOCKED rules matching
+# 127.255.255.255, and scores all of them 0. init.sh now runs sa-update at
+# container start (plus scripts/sa-update.sh weekly via cron), so in the normal
+# case the updated ruleset already handles it.
+#
+# This file is therefore a deliberate safety net, not the primary fix: it keeps
+# the Validity rules neutral even if sa-update fails, is blocked by a firewall,
+# or the ./data/spamassassin bind mount is ever wiped. Scoring a rule 0 also
+# makes SpamAssassin skip the (useless) DNS lookup entirely.
+# -----------------------------------------------------------------------------
+score RCVD_IN_VALIDITY_CERTIFIED 0
+score RCVD_IN_VALIDITY_SAFE 0
+score RCVD_IN_VALIDITY_RPBL 0
