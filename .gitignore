@@ -1,8 +1,18 @@
 # Data directories (created at runtime)
 data/
 
-# Environment file with secrets
+# Environment file with secrets.
+# The timestamped-backup patterns matter: `*.bak` further down does NOT match a
+# name like `.env.bak.20260617T085922Z` (it does not END in .bak), so a stale
+# secrets backup sitting in the deploy dir showed up as untracked and was one
+# `git add -A` away from being committed.
 .env
+.env.bak*
+.env.*.bak
+.env.*.backup
+
+# fail2ban runtime state (ban database) — regenerated, never version it
+config/fail2ban/db/
 
 # SSL certificates
 *.pem
