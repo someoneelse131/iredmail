@@ -16,24 +16,39 @@ chown -R clamav:clamav /run/clamav /var/lib/clamav /var/log/clamav
 # Clean stale files
 rm -f /run/clamav/clamd.pid /run/clamav/clamd.ctl
 
-# Wait for a concurrent freshclam to finish — but NEVER indefinitely.
-# Since 2026-08-07 a freshclam DAEMON runs permanently (s6 service "freshclam"),
-# so the original unbounded `while pgrep -x freshclam` would block clamd forever
-# on every restart. freshclam downloads into a temp dir and renames the database
-# into place, so starting clamd mid-update is safe regardless; this wait is only
-# a courtesy to avoid a pointless double-load on first boot.
-waited=0
-while pgrep -x freshclam > /dev/null 2>&1 && [ "$waited" -lt 60 ]; do
-    echo "Waiting for freshclam to finish... (${waited}s)"
-    sleep 2
-    waited=$((waited + 2))
-done
+# Signature database handling.
+#
+# Ongoing updates are NOT this script's job — the "freshclam" s6 service runs
+# freshclam in daemon mode (hourly). This block is a pure BOOTSTRAP wait for the
+# very first boot, when no database exists yet.
+#
+# What was here before: an unbounded `while pgrep -x freshclam; do sleep 2; done`
+# plus an inline download gated on `[ ! -f main.cvd ]`. Both are wrong now:
+#   - a permanently running freshclam daemon makes that pgrep loop block clamd
+#     forever on every restart;
+#   - freshclam converts .cvd to .cld after an incremental update, so testing
+#     only main.cvd would re-download the whole set once the DB updates in place.
+# freshclam stages downloads in a temp dir and renames them in, so starting
+# clamd while an update is in flight is safe and needs no interlock.
+db_present() {
+    [ -f /var/lib/clamav/main.cvd ] || [ -f /var/lib/clamav/main.cld ]
+}
 
-# Download virus definitions if not present
-if [ ! -f "/var/lib/clamav/main.cvd" ]; then
-    echo "Virus definitions not found, downloading..."
-    su -s /bin/bash -c "freshclam --foreground --stdout" clamav || true
-    echo "Virus definitions downloaded, starting clamd..."
+if ! db_present; then
+    echo "No virus definitions yet, waiting for the freshclam service to fetch them..."
+    waited=0
+    while ! db_present && [ "$waited" -lt 300 ]; do
+        sleep 5
+        waited=$((waited + 5))
+        echo "  ... still waiting for signatures (${waited}s)"
+    done
+    if db_present; then
+        echo "Virus definitions present after ${waited}s."
+    else
+        echo "WARNING: still no signature database after ${waited}s."
+        echo "         Starting clamd anyway; it will fail to load and s6 will"
+        echo "         retry until freshclam succeeds."
+    fi
 fi
 
 echo "Starting clamd..."

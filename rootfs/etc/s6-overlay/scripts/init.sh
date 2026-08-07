@@ -1281,6 +1281,7 @@ main() {
         create_sogo_config
         configure_postfix
         configure_dovecot
+        configure_clamav
         configure_amavis
         configure_nginx
         configure_sogo
