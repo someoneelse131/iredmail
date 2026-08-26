@@ -2,6 +2,56 @@
 
 A production-ready, dockerized iRedMail mail server with all components included in a single, easy-to-deploy solution.
 
+![Topologie](docs/mail-topologie.png)
+
+> **Einordnung in die Infrastruktur, gemessen am 2026-08-26**
+>
+> | | |
+> |---|---|
+> | **Zielhost** | `mail` (217.154.65.109), 8 CPU, 15 Gi |
+> | **Pfad** | `/opt/iredmail` |
+> | **Container** | `iredmail-core`, `iredmail-db` (mariadb:10.11), `iredmail-fail2ban`, `iredmail-certbot` (certbot/certbot:v4.0.0) |
+> | **Ports** | 25, 143, 465, 587, 993, 4190, dazu 80 und 443 für `/mail`, `/iredadmin`, `/SOGo` |
+> | **Eintrittspunkt** | **eigener Stack.** Geht **nicht** über den zentralen nginx, `mail.kirby.rocks` steht **nicht** in `nginx/domains.conf`, das Zertifikat holt der stackeigene certbot |
+> | **Git** | `someoneelse131/iredmail`, ⚠️ **öffentlich**, entgegen der Konvention. Geprüft: keine Secrets versioniert, `.env` war immer gitignored. Entscheidung E9 |
+> | **Kuma** | ID 1, prüft `https://mail.kirby.rocks/iredadmin`. ⚠️ **Nur die Weboberfläche.** Die Zustellung selbst wird nicht geprüft |
+>
+> ### ✅ Der einzige vollständig gesicherte Host
+>
+> - **Borg alle 4 h**, verschlüsselt und dedupliziert (`15 */4 * * *`)
+> - **täglich ein tar.gz** (`0 2 * * *`)
+> - **Offsite nach IONOS HiDrive** per `rclone sync` auf
+>   `hidrive:/backup/iredmail/data`, mit `--backup-dir` in ein Verzeichnis
+>   `.trash/<Zeitstempel>` statt zu löschen
+> - **Dead-Man's-Switch über Healthchecks.io**, mit **getrenntem** Check für den
+>   Offsite-Zweig, damit ein stiller HiDrive-Ausfall unabhängig alarmiert
+> - drei Restore-Skripte: `restore.sh`, `restore-borg.sh`, `restore-mailbox.sh`
+>
+> ⚠️ **Die Jobs liegen in `/etc/cron.d/`, nicht als systemd-Timer.** Wer nur
+> nach Timern sucht, hält diesen Host für ungesichert. Genau dieser Irrtum
+> stand bis 2026-08-23 in der Infrastruktur-Dokumentation.
+>
+> ### ⚠️ Ein zweiter, abgeschalteter Offsite-Weg, und warum er scheiterte
+>
+> `/etc/cron.d/iredmail-offsite-backup**.disabled**`.
+> Cron ignoriert jeden Dateinamen mit einem Punkt darin, der Job läuft also
+> nicht. Er rief `offsite-backup.sh` auf, das per `scp` zur **Synology**
+> (`10.0.0.2:44` durch den WireGuard-Tunnel) sicherte. Letzter Lauf am
+> **28.04.2026**, gescheitert mit `Cannot reach 10.0.0.2 – VPN down?`.
+>
+> Dass der Job abgeschaltet ist, war bekannt. **Neu ist am 2026-08-26 die
+> Ursache:** er sicherte per `scp` zur Synology durch den WireGuard-Tunnel, und
+> der hat für `mail` nie getragen. Der Peer steht nur in der Repo-Vorlage, nicht
+> in der Datei, die der Container liest, und Port 44 ist am Container nie
+> veröffentlicht worden. Zwei unabhängige Blocker.
+>
+> **Kein Verlust:** `rclone.conf` ist vom 01.05.2026, drei Tage nach dem letzten
+> Fehlschlag. HiDrive hat den Weg abgelöst. **Der Ertrag ist ein anderer:** der
+> Tunnel existierte für genau dieses Backup, also hat er für `mail` keinen Zweck
+> mehr. Damit ist die offene Frage „toten Peer reparieren oder abbauen"
+> beantwortbar geworden. Siehe `../wireguard/README.md` Abschnitt 2 und
+> `../docs/backup-konzept.md` Abschnitt 1.1.
+
 This project addresses known issues with the archived official iRedMail Docker image and provides a stable, maintainable alternative.
 
 ## Features
