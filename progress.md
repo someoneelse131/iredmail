@@ -106,6 +106,78 @@ Der Empfängerserver hat die Nachricht angenommen, nicht nur die eigene Queue.
   vierzehn Tagen Log steht **kein einziger echter Versand über SOGo**. Der Weg
   ist gemessen, nicht im Betrieb belegt.
 
+## Spam landet endlich im Junk 2026-09-06 — abgeschlossen
+
+Gemeldet als "Spam wird richtig erkannt, landet aber nicht im Spam-Ordner, und
+nicht als gelesen". Die Meldung stimmte im Ergebnis, aber nicht in der Ursache.
+
+**Was NICHT kaputt war.** Die Sieve-Kette. `before.d/spam-to-junk.sieve` hat
+jede Mail mit `X-Spam-Flag: YES` korrekt nach Junk gelegt und dabei `\Seen`
+gesetzt, nachweisbar in `/var/log/iredmail/dovecot.log` (**nicht** in
+`maillog`, `info_log_path` zeigt woanders hin — genau daran scheitert die
+Suche zuerst, weil `grep "stored mail into mailbox"` im maillog nichts findet).
+
+**Ursache 1: Bayes war seit der Installation wirkungslos.** SpamAssassin
+verlangt per Default `bayes_min_spam_num`/`bayes_min_ham_num` = 200, bevor die
+BAYES_*-Regeln überhaupt punkten. Die DB stand bei nspam=36 / nham=194, also
+vier Monate unter der Schwelle. Ohne Bayes fehlten den Mails genau die Punkte,
+die den **Inhalt** bewerten: dieselbe Kampagne kam auf 8.1 wenn Spamhaus die
+sendende IP schon kannte, und auf 3.9 wenn nicht. Bei einem Tag-Level von 5.0
+blieb die zweite Hälfte im Posteingang liegen.
+
+**Ursache 2: was der Anwender sah, war Thunderbird, nicht der Server.** Die 8
+Mails im Posteingang trugen alle `X-Spam-Flag: NO` (Scores 0.874 bis 4.432),
+aber das IMAP-Keyword `Junk`. `dovecot-keywords` enthält
+`NonJunk / Junk / $Junk / $Filtered`, die TB-Signatur. TBs eigener Filter hat
+markiert, ohne zu verschieben, weil "Move new junk messages to" im Konto nicht
+gesetzt war. **Merke: eine Junk-Markierung in TB ohne Verschieben trainiert den
+Server nicht** — `imapsieve_mailbox1_causes = COPY APPEND` hängt am
+Junk-Ordner, ein Keyword auf INBOX ist ein FLAG-Event und trifft keine Regel.
+
+**Ursache 3, beim Testen gefunden, potenziell schlimmer als die Meldung.**
+10 von 12 Postfächern hatten **gar keinen Junk-Ordner**. `15-mailboxes.conf`
+definiert `mailbox Junk` nur mit `special_use`, ohne `auto`, und
+`lda_mailbox_autocreate` steht auf no. Ohne Zielordner läuft `fileinto "Junk"`
+ins Leere, Sieve fällt auf implicit keep zurück, und der Spam landet **ohne
+eine einzige Fehlermeldung** im Posteingang. Betraf u. a. acc@maisonsoave.ch
+und postmaster@kirby.rocks.
+
+**Behoben (`ba613ef`, `41f0cc0`, deployt mit dem Rebuild 2026-09-06 17:43):**
+- Einmaliges Bulk-Training über den Bestand: 76 Spam (Junk + Posteingang von
+  contact@), 343 Ham (die handsortierten `INBOX.*`-Ordner, **kein** Trash,
+  **kein** Sent). Ergebnis nspam=112 / nham=536. Bayes-DB vorher gesichert nach
+  `data/backup/bayes/bayes_{toks,seen}.20260906-165312`.
+- `bayes_min_*` auf 100 in `rootfs/etc/spamassassin/99_local_overrides.cf`.
+  Nicht tiefer: unter rund hundert Stichproben je Klasse wird die
+  Tokenstatistik unzuverlässig.
+- `auto = subscribe` für `mailbox Junk` in `config/dovecot/custom.conf`. Der
+  benannte `namespace inbox`-Block wird von Dovecot mit dem aus
+  15-mailboxes.conf **zusammengeführt**, nicht überschrieben, mit `doveconf -n`
+  gegengeprüft (Drafts, Sent, "Sent Messages", Trash unverändert).
+- 90-Tage-Junk-Cleanup in `scripts/backup-cron`. Durch lazy_expunge wandern die
+  Mails erst nach `.EXPUNGED`, echte Aufbewahrung also 90 + 30 Tage.
+
+**Abgenommen.** Eine Mail, die vorher 3.873 erreichte, kommt jetzt auf 5.2
+(BAYES_99 +3.5, BAYES_999 +0.2). Gegenrichtung mit 34 echten Mails aus 17
+handsortierten Ordnern geprüft: durchweg BAYES_00, Bereich −4.2 bis +0.3, kein
+Fehlalarm. Ende-zu-Ende nach dem Rebuild mit einer GTUBE-Mail an
+**acc@maisonsoave.ch**, dem Postfach ohne Junk-Ordner: amavis `Passed SPAM`
+999.998, Betreff `[SPAM] …`, gelandet in Junk mit `\Seen`, INBOX unverändert
+bei 37. Ausfall beim Container-Tausch **22 Sekunden** (17:43:35 bis 17:43:57).
+
+**Offen, nicht dringend:**
+- `/var/lib/amavis/virusmails` und `/var/lib/amavis/db` sind **nicht gemountet**
+  und verlieren bei jedem Recreate ihren Inhalt (Quarantäne-Kopien, interne
+  Zähler-DBs). Gleiche Fehlerklasse wie der Storage-Vorfall vom 2026-04-28,
+  aber ohne Verlust echter Nutzerpost. Nachziehen, falls die Quarantäne je für
+  Auswertungen gebraucht wird.
+- Der Anwender muss in Thunderbird "Junk verschieben nach" und "als gelesen
+  markieren" setzen, sonst bleibt die clientseitige Markierung wirkungslos und
+  trainiert weiterhin nichts.
+- `warning: not owned by root: /var/spool/postfix/etc` bei jedem Postfix-Start.
+  Kosmetisch, im persistenten `maillog` bis mindestens 2026-08-27 zurück
+  belegt, also **keine** Regression des Rebuilds.
+
 ## Spam-Stack-Sanierung 2026-08-07 — abgeschlossen
 
 Ausgelöst durch "Spam landet nicht in Junk" bei `contact@maisonsoave.ch`. Drei sich überlagernde Defekte, alle behoben und verifiziert. Commits `239a81b`, `26a7d40`, `f78c028`, `f12e4a6`.
