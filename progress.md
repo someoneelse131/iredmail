@@ -46,6 +46,66 @@ In risk × effort order. Pull from top. **P1-C done in `98c05c6` (Roundcube 1.6.
 3. **Gruppe B — container hardening (NEXT SESSION, MEDIUM risk, same rebuild, TEST AFTER RECREATE).** `docker-compose.yml` iredmail-core service (cap_add at line ~93). Add `security_opt: ["no-new-privileges:true"]` and review `cap_drop`. **Real risk flagged:** `no-new-privileges` blocks setuid/setgid escalation — iRedMail's postfix ships setgid `postdrop`/`maildrop`; local sendmail submission could break (inbound SMTP likely unaffected). The container is supervisor-as-root (s6), so full `cap_drop: [ALL]` + minimal re-add is fragile (postfix/dovecot/clamav need CHOWN/SETUID/SETGID/DAC_OVERRIDE/KILL). Minimum viable = just `no-new-privileges:true`, then smoke-test e2e (inbound :25 → INBOX, webmail send, SOGo) before declaring done. Keep a rollback image tag.
 4. **P3 backlog (remainder)** — see `progress-archive.md` "P3" sections. Highlights: SOGo memcached broken (floods sogo.log) DONE 2026-06-15, H1 amavis bind-mount (DONE 2026-05-04 as part of P1-B Phase 2), ~~H2 docker log driver + `live-restore`~~ + ~~H3 logrotate iRedMail logs~~ (both done 2026-06-17, see "Host config / logrotate" below), ~~H6/H7 borg-backup.sh resilience patches~~ (H7 done 2026-05-26 via `run_borg` wrapper + amavis-spamassassin exclude), ~~kernel reboot pending~~ (N/A — server already runs latest installed kernel `6.8.0-124`, no `reboot-required` flag, only 3 trivial pending updates as of 2026-06-17). (H5 healthcheck, HSTS, BCRYPT, container `no-new-privileges`/caps promoted to items 2-3 above. MTA-STS + TLS-RPT promoted to item 1 above.)
 
+## Roundcube-Versand repariert 2026-08-25 — abgeschlossen
+
+Gemeldet als "SOGo, SMTP error, Authentication failed" beim Senden als
+`contact@maisonsoave.ch`. Es war **nicht SOGo, sondern Roundcube.**
+
+**Ursache.** `create_roundcube_config()` erzeugte `$config['smtp_host'] = 'localhost:25'`.
+Auf Port 25 wirbt Postfix AUTH erst nach STARTTLS (`smtpd_tls_auth_only = yes`,
+`smtpd_tls_security_level = may`), und Roundcube schickt bei einem Host ohne
+Schema kein STARTTLS. Es sieht deshalb gar keine AUTH-Fähigkeit und bricht ab,
+**bevor ein Passwort das Kabel sieht**. Genau deshalb stand im `maillog` keine
+einzige fehlgeschlagene Anmeldung: der Versuch kam nie bis zur Prüfung, und die
+Suche nach dem Fehler an der falschen Stelle (Konto, Passwort, fail2ban) wäre
+ergebnislos geblieben.
+
+**Regression, nicht Ursprungszustand.** `smtpd_tls_auth_only = yes` kam am
+2026-05-15 mit `628a0ea` ("P1-D Postfix hardening") dazu und legte Roundcube
+**und** SOGo gleichzeitig lahm. Am 2026-06-09 hat `e0870b9` SOGo auf
+`smtps://${HOSTNAME}:465` umgestellt, **Roundcube wurde dabei übersehen**.
+Zeitachse aus den Logs: letzter erfolgreicher Roundcube-Versand 2026-03-13
+(`sendmail.log`), erster `SMTP server does not support authentication`
+2026-06-15 (`errors.log`), also beim ersten Sendeversuch nach dem Hardening.
+
+**Fix.** `$config['smtp_host'] = 'ssl://${HOSTNAME}:465';` an zwei Stellen:
+- `config/roundcube/config.inc.php` — das Custom-Include wird am Ende des
+  generierten Config eingebunden, gewinnt also und wirkt **sofort ohne Rebuild
+  und ohne Neustart** (Bind-Mount, PHP liest bei jedem Aufruf).
+- `rootfs/etc/s6-overlay/scripts/init.sh` — damit ein Neuaufbau nicht wieder
+  kaputt geboren wird. **Wirkt erst nach `docker compose build` + `up -d`**, bis
+  dahin trägt allein das Custom-Include den Fix. Solange gilt "Repo == server"
+  für `init.sh` nicht mehr, siehe "What's SOLID".
+
+**Hostname muss `${HOSTNAME}` sein, nicht `localhost`.** PHP prüft bei `ssl://`
+per Default den Namen im Zertifikat (`verify_peer`/`verify_peer_name`), dessen
+CN ist `mail.kirby.rocks`. Im Container löst der Name auf die eigene
+Container-IP auf, die Verbindung verlässt den Host also nicht. Gleiche
+Begründung wie bei `SOGoSMTPServer`.
+
+**Gemessen, EHLO je Weg:** Port 25 ohne STARTTLS wirbt **kein** AUTH; Port 25
+nach STARTTLS, 587 nach STARTTLS und 465 direkt werben `AUTH PLAIN`. Die
+Fähigkeitsliste ohne AUTH ist Zeichen für Zeichen die, die Roundcube in
+`errors.log` protokolliert hatte.
+
+**Verifiziert, Ende zu Ende** (20:58 Uhr, echter Versand durch den Anwender):
+`postfix/smtps/smtpd: sasl_method=plain, sasl_username=contact@maisonsoave.ch`
+→ amavis `Passed CLEAN {RelayedOutbound}, ORIGINATING`, `dkim_new=dkim:maisonsoave.ch`
+→ `relay=mail.dormiente.com[91.132.146.119]:25, status=sent (250 2.0.0 Ok)`.
+Der Empfängerserver hat die Nachricht angenommen, nicht nur die eigene Queue.
+
+**Nebenbefunde, nicht behoben, kein Handlungsdruck:**
+- `sendmail.log` hat den erfolgreichen Versand **nicht** protokolliert
+  (letzter Eintrag weiter 2026-03-13), obwohl `smtp_log` in 1.6 per Default an
+  ist. Kosmetisch, der Versand selbst steht im `maillog`.
+- Der `roundcube-auth`-Jail zählt diese Fehlerklasse nicht mit (0 Treffer bei 5
+  Fehlschlägen). Sein Filter greift nur IMAP-Login-Fehler. Hier war das ein
+  Glück, sonst hätte sich der Anwender beim Wiederholen selbst ausgesperrt.
+- Auf `dev` gibt es keinen Ersatz-Sendeweg, SOGo bleibt der einzige zweite.
+  SOGos Strecke ist geprüft (Zertifikat gültig, `250-AUTH PLAIN`), aber in den
+  vierzehn Tagen Log steht **kein einziger echter Versand über SOGo**. Der Weg
+  ist gemessen, nicht im Betrieb belegt.
+
 ## Spam-Stack-Sanierung 2026-08-07 — abgeschlossen
 
 Ausgelöst durch "Spam landet nicht in Junk" bei `contact@maisonsoave.ch`. Drei sich überlagernde Defekte, alle behoben und verifiziert. Commits `239a81b`, `26a7d40`, `f78c028`, `f12e4a6`.
@@ -124,6 +184,10 @@ These needed a real IMAP client (Roundcube + Thunderbird) — `doveadm move` byp
 - Storage-path fix durable: inodes identical host↔container, `init.sh` regenerates correct paths from scratch on every container start, all 10 DB rows consistent (`storagebasedirectory='/var/vmail', storagenode='vmail1'`).
 - Borg pipeline: `borg check --repository-only` clean, atomic `.tmp` rename for DB dump, restore-drill bit-identical.
 - Repo == server: `sha256sum init.sh + docker-compose.yml` identical.
+  **Ausnahme seit 2026-08-25:** `init.sh` trägt den Roundcube-`smtp_host`-Fix,
+  das laufende Image noch nicht. Gilt bis zum nächsten
+  `docker compose build iredmail && up -d iredmail`. Der Fix wirkt derweil
+  über `config/roundcube/config.inc.php`, siehe Abschnitt oben.
 - Open-relay closed (`smtpd_relay_restrictions` correct).
 - Docker socket NOT mounted into any container.
 - AppArmor enforcing (`docker-default`).

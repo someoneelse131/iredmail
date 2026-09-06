@@ -30,3 +30,23 @@ $config['plugins'] = array_merge(isset($config['plugins']) ? $config['plugins'] 
 $config['markasjunk_learning_driver'] = null;
 $config['markasjunk_spam_mbox']       = 'Junk';
 $config['markasjunk_ham_mbox']        = 'INBOX';
+
+// -----------------------------------------------------------------------------
+// SMTP: Einreichung ueber implizites TLS auf 465.
+//
+// Der generierte Default ist 'localhost:25'. Auf Port 25 wirbt Postfix AUTH
+// erst nach STARTTLS (smtpd_tls_auth_only=yes, smtpd_tls_security_level=may),
+// und Roundcube schickt bei einem Host ohne Schema kein STARTTLS. Es sieht
+// deshalb gar keine AUTH-Faehigkeit und bricht mit "SMTP server does not
+// support authentication" ab; die Oberflaeche zeigt das als
+// "SMTP Error: Authentication failure". Am 2026-08-25 gemessen, die
+// EHLO-Antwort auf 25 ohne STARTTLS enthaelt kein AUTH, nach STARTTLS und auf
+// 465 und 587 dagegen "AUTH PLAIN".
+//
+// Der Hostname muss mail.kirby.rocks lauten, nicht localhost: PHP prueft bei
+// ssl:// den Namen im Zertifikat. Im Container loest mail.kirby.rocks auf die
+// eigene Container-IP auf, die Verbindung verlaesst den Host also nicht.
+//
+// Gleiche Ursache und gleiche Loesung wie bei SOGoSMTPServer in sogo.conf,
+// dort steht seit laengerem smtps://mail.kirby.rocks:465.
+$config['smtp_host'] = 'ssl://mail.kirby.rocks:465';

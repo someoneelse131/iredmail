@@ -1051,8 +1051,15 @@ create_roundcube_config() {
 // Default host for IMAP connection
 \$config['imap_host'] = 'localhost:143';
 
-// SMTP server (use port 25 for local delivery)
-\$config['smtp_host'] = 'localhost:25';
+// SMTP server: submission via implicit TLS on 465.
+// Port 25 only advertises AUTH after STARTTLS (smtpd_tls_auth_only=yes), and
+// Roundcube sends no STARTTLS for a bare host:port. With 'localhost:25' it
+// therefore sees no AUTH capability at all and aborts with "SMTP server does
+// not support authentication", which the UI shows as "Authentication failure".
+// Must use ${HOSTNAME} (not localhost): PHP verifies the peer name on ssl://
+// against the relay certificate, whose CN is ${HOSTNAME}.
+// Same cause and same fix as SOGoSMTPServer below.
+\$config['smtp_host'] = 'ssl://${HOSTNAME}:465';
 \$config['smtp_user'] = '%u';
 \$config['smtp_pass'] = '%p';
 
