@@ -46,3 +46,30 @@
 score RCVD_IN_VALIDITY_CERTIFIED 0
 score RCVD_IN_VALIDITY_SAFE 0
 score RCVD_IN_VALIDITY_RPBL 0
+
+# -----------------------------------------------------------------------------
+# Bayes activation thresholds (2026-09-06)
+#
+# Stock SpamAssassin needs 200 learned spam AND 200 learned ham before the
+# BAYES_* rules score anything at all. On a small private server that count is
+# never reached from ambient traffic: on 2026-09-06 the DB stood at nspam=36 /
+# nham=194 after four months, so Bayes had been dead weight since day one and
+# every borderline mail (score 3.8 to 4.4) landed in the INBOX.
+#
+# Fixed in two steps: a one-off bulk training over the existing corpus
+# (76 spam from contact@'s Junk folder + INBOX, 343 ham from the hand-sorted
+# INBOX.* folders) brought the DB to nspam=112 / nham=536, and these two
+# settings lower the activation bar to a value that corpus actually clears.
+#
+# 100 is deliberately not lower: below roughly a hundred samples per class the
+# token statistics get noisy and false positives become a real risk. Raise back
+# towards the 200 default once the DB has grown well past it.
+#
+# Ongoing training runs through imap_sieve (see 91-iredmail-sieve.conf): a mail
+# COPY'd or MOVE'd into Junk feeds sa-learn --spam, one moved out of Junk feeds
+# --ham. Note that merely flagging a mail as junk in Thunderbird does NOT train
+# anything — that is a FLAG event on INBOX and matches no imapsieve rule. The
+# client must be configured to actually move junk into the Junk folder.
+# -----------------------------------------------------------------------------
+bayes_min_spam_num 100
+bayes_min_ham_num 100

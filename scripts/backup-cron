@@ -6,3 +6,9 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # lazy_expunge Cleanup: Mails älter als 30 Tage löschen um 3:00
 0 3 * * * root docker exec iredmail-core doveadm expunge -A mailbox '.EXPUNGED/*' savedbefore 30d >> /opt/iredmail/data/logs/expunge-cleanup.log 2>&1
+
+# Junk-Cleanup: Spam älter als 90 Tage aus allen Junk-Ordnern entfernen, 3:30.
+# Läuft nach dem lazy_expunge-Job oben, nicht gleichzeitig. Die hier entfernten
+# Mails landen durch lazy_expunge zunächst in .EXPUNGED und fallen erst 30 Tage
+# später endgültig weg — effektive Aufbewahrung also 90 + 30 Tage.
+30 3 * * * root docker exec iredmail-core doveadm expunge -A mailbox Junk savedbefore 90d >> /opt/iredmail/data/logs/expunge-cleanup.log 2>&1
