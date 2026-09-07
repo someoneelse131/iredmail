@@ -4,6 +4,68 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+> **Gap notice.** Nothing was recorded here between `1.3.0` (2026-05-26) and this
+> entry, although several changes shipped in that window (MTA-STS rollout,
+> SpamAssassin ruleset repair + unbound resolver 2026-08-07, ClamAV/freshclam,
+> Roundcube SMTP fix 2026-08-25). `progress.md` is the living record for that
+> period and carries the full analysis; this file resumes from 2026-09-06.
+
+### Fixed
+- **Spam scoring: Bayes had been inert since installation.** SpamAssassin ignores
+  the `BAYES_*` rules until 200 spam *and* 200 ham are learned; the DB stood at
+  nspam=36 / nham=194 after four months, so no `BAYES_*` rule ever appeared in
+  `X-Spam-Status`. Mail scoring 3.8–4.4 stayed in the INBOX against a tag level
+  of 5.0. Bulk-trained from the existing corpus (76 spam from the Junk folder and
+  INBOX, 343 ham from hand-sorted `INBOX.*` folders, no Trash and no Sent) to
+  nspam=112 / nham=536, and lowered `bayes_min_spam_num` / `bayes_min_ham_num` to
+  `100` in `rootfs/etc/spamassassin/99_local_overrides.cf`. Verified both ways: a
+  mail that scored 3.873 now scores 5.2, and a 34-message sample of real
+  correspondence from 17 folders returns `BAYES_00` throughout (−4.2 to +0.3), so
+  no false-positive tendency. Bayes DB backed up to
+  `data/backup/bayes/` before training.
+- **Mailboxes without a Junk folder silently delivered spam to the INBOX.**
+  `15-mailboxes.conf` declares `mailbox Junk` with `special_use` but no `auto`,
+  and `lda_mailbox_autocreate` is off, so a mailbox never opened by an IMAP
+  client had no target for `fileinto "Junk"`. Sieve then falls back to implicit
+  keep — **with no error logged anywhere**. 10 of 12 mailboxes were affected.
+  Fixed with `mailbox Junk { auto = subscribe }` in `config/dovecot/custom.conf`;
+  Dovecot merges the named `namespace inbox` block rather than replacing it
+  (`Drafts`, `Sent`, `"Sent Messages"`, `Trash` and the `.EXPUNGED` lazy_expunge
+  namespace verified intact via `doveconf -n`).
+- **Roundcube SMTP generator.** `create_roundcube_config()` still wrote
+  `localhost:25`, where Postfix only advertises AUTH after STARTTLS
+  (`smtpd_tls_auth_only`, added 2026-05-15) and Roundcube sends none. The
+  2026-08-25 repair had only patched the bind-mounted overlay, so any deployment
+  without it would be born broken. Generator now emits
+  `ssl://${HOSTNAME}:465`, matching `SOGoSMTPServer`.
+
+### Added
+- 90-day Junk cleanup in `scripts/backup-cron`:
+  `doveadm expunge -A mailbox Junk savedbefore 90d`, daily at 03:30. Previously
+  only `.EXPUNGED` was pruned (30 d) and Junk grew without bound. lazy_expunge
+  routes the expunged mail through `.EXPUNGED` first, so effective retention is
+  90 + 30 days.
+- `README.md` → **Spam Handling** troubleshooting section: the full delivery
+  chain with every threshold, which log holds which proof, and the diagnosis
+  order for "spam arrives in the INBOX".
+
+### Notes
+- Rebuilt and recreated 2026-09-06 17:43, **22 s outage**. Rollback tag
+  `iredmail-custom:pre-2026-09-06`. Verified end to end with a GTUBE message to
+  the mailbox that previously had no Junk folder: amavis `Passed SPAM` 999.998 →
+  Junk, pre-marked `\Seen`, INBOX untouched. Bayes DB and maildirs survived via
+  their bind mounts.
+- Live training confirmed 2026-09-07: a user-moved message produced
+  `sa-learn-pipe: trained mode=spam` in `maillog`, raised nspam to 113, and the
+  same message now rescans at 8.9 with `BAYES_99` instead of 2.293 with
+  `BAYES_50`.
+- **Known gap, not fixed:** `/var/lib/amavis/virusmails` and `/var/lib/amavis/db`
+  are written by the container but not bind-mounted, so amavis quarantine copies
+  and internal counters are lost on every recreate. Same error class as the
+  2026-04-28 storage incident, but it costs no user mail.
+
 ## [1.3.0] - 2026-05-26
 
 ### Added

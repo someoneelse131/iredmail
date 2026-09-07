@@ -605,6 +605,67 @@ dig TXT dkim._domainkey.example.com +short
 dig TXT _dmarc.example.com +short
 ```
 
+### Spam Handling
+
+**Delivery chain.** Postfix → amavis (`smtp-amavis:10024`, inbound policy) →
+SpamAssassin → back to Postfix `:10025` → Dovecot LMTP → `sieve_before`.
+
+| Stage | Where | Threshold |
+|---|---|---|
+| Headers added | amavis `$sa_tag_level_deflt` | `-999` (always) |
+| `X-Spam-Flag: YES` + `[SPAM]` subject | amavis `$sa_tag2_level_deflt` | `5.0` |
+| Quarantine copy | amavis `$sa_kill_level_deflt` | `9.0` (`D_PASS`, still delivered) |
+| Moved to Junk, pre-marked `\Seen` | `/etc/dovecot/sieve/before.d/spam-to-junk.sieve` | on `X-Spam-Flag: YES` |
+| Bayes counted in the score | `bayes_min_spam_num` / `bayes_min_ham_num` | `100` each |
+| Junk purged | `doveadm expunge -A mailbox Junk savedbefore 90d` (03:30) | 90 d + 30 d in `.EXPUNGED` |
+
+Amavis conf lives in `/etc/amavis/conf.d/50-user`, SpamAssassin overrides in
+`rootfs/etc/spamassassin/99_local_overrides.cf` (ships via `COPY rootfs/ /`,
+so **a change there needs a rebuild + recreate**).
+
+**Where the proof is.** Sieve logs its filing decision to
+**`/var/log/iredmail/dovecot.log`**, not to `maillog` — `info_log_path` is
+redirected in `config/dovecot/custom.conf`:
+
+```bash
+docker exec iredmail-core grep "stored mail into mailbox" /var/log/iredmail/dovecot.log
+docker exec iredmail-core grep sa-learn-pipe /var/log/iredmail/maillog   # training events
+docker exec -u amavis iredmail-core sa-learn --dump magic --siteconfigpath=/etc/spamassassin
+```
+
+Note `/var/log/mail.log` also exists but lives in the container's writable
+layer and is **wiped on every recreate**. `/var/log/iredmail/maillog` is the
+bind-mounted, rotated copy — always read that one when checking history.
+
+**Diagnosing "spam arrives in the INBOX", in this order:**
+
+1. **Read `X-Spam-Flag` on the stored message**, not the client's icon:
+   `doveadm fetch -u <user> "hdr.x-spam-flag hdr.x-spam-status flags" mailbox INBOX`.
+   `NO` means the server never classified it and the sieve chain is fine.
+2. **`flags: Junk` with `X-Spam-Flag: NO` is Thunderbird**, not the server.
+   `<maildir>/dovecot-keywords` holding `NonJunk / Junk / $Junk / $Filtered` is
+   the TB signature. Its filter is per-client, invisible to phone and webmail,
+   and — because it only sets a keyword — **trains nothing** server-side.
+3. **Check whether the mailbox even has a Junk folder.** Without one,
+   `fileinto "Junk"` falls back to implicit keep and delivers to INBOX with
+   **no error logged at all**. `mailbox Junk { auto = subscribe }` in
+   `config/dovecot/custom.conf` prevents this; verify with
+   `doveadm mailbox list -s -u <user> Junk`.
+4. **Check whether Bayes is actually active.** Stock SpamAssassin ignores it
+   until 200 spam *and* 200 ham are learned; on a small server that never
+   happens by itself. If no `BAYES_*` rule appears in `X-Spam-Status`, it is
+   dead weight. Bulk-train from existing folders (`sa-learn --spam --dir` over
+   Junk, `--ham` over hand-sorted folders — never Trash or Sent), then lower
+   `bayes_min_*` to a value the corpus clears.
+
+**Training.** Only an IMAP COPY/APPEND **into** the Junk folder fires
+`sa-learn --spam` (and a COPY out of it fires `--ham`) — see
+`imapsieve_mailbox*` in `rootfs/etc/dovecot/conf.d/91-iredmail-sieve.conf`.
+Dragging a message into Junk in any client works. Clicking a client-side "junk"
+button that only sets a flag does not. `doveadm move` and `doveadm save` bypass
+the hooks entirely, so training cannot be verified programmatically — check for
+a `sa-learn-pipe: trained mode=spam` line in `maillog` instead.
+
 ### Common Issues
 
 | Issue | Solution |
@@ -613,6 +674,9 @@ dig TXT _dmarc.example.com +short
 | Cannot send email | Check firewall allows port 25, 465, 587 |
 | Cannot receive email | Verify MX record and port 25 |
 | High spam score | Configure SPF, DKIM, DMARC, PTR |
+| Spam lands in the INBOX | See **Spam Handling** above — check `X-Spam-Flag` first, not the mail client's icon |
+| Junk folder missing for a mailbox | `mailbox Junk { auto = subscribe }`; without it `fileinto` silently falls back to INBOX |
+| Marking junk in Thunderbird changes nothing | TB sets an IMAP keyword only; the message must be **moved** into Junk to train Bayes |
 | Blacklisted IP | Check at [MXToolbox](https://mxtoolbox.com/blacklists.aspx) |
 | ClamAV using high memory | Normal - needs ~1-2GB for virus definitions |
 | VPS blocks outbound port 25 | Contact your VPS provider to unblock (common with IONOS, AWS, etc.) |

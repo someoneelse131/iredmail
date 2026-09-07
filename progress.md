@@ -165,6 +165,19 @@ Fehlalarm. Ende-zu-Ende nach dem Rebuild mit einer GTUBE-Mail an
 999.998, Betreff `[SPAM] …`, gelandet in Junk mit `\Seen`, INBOX unverändert
 bei 37. Ausfall beim Container-Tausch **22 Sekunden** (17:43:35 bis 17:43:57).
 
+**Nachkontrolle 2026-09-07, Lernkette im Alltag belegt.** Vier Mails der
+laufenden Kampagne (00:20, 03:42, 08:29, 09:37) gingen ohne Zutun direkt nach
+Junk, mit `[SPAM]` im Betreff und `\Seen`. Eine einzige Ausreisserin
+(`support@brunomarcshoes.com`, 2.293 Punkte, dabei schon `BAYES_50=0.8`) landete
+im Posteingang und wurde vom Anwender von Hand nach Junk gezogen. Dass daraus
+tatsaechlich gelernt wurde, ist dreifach belegt:
+`sa-learn-pipe: trained mode=spam user=contact@maisonsoave.ch` um 08:15:41 im
+`maillog`, nspam von 112 auf 113, und die Neubewertung derselben Mail liefert
+jetzt `BAYES_99 + BAYES_999` und **8.9** statt 2.293. Vom Zuwachs entfallen rund
+2.9 Punkte auf Bayes und gut 4 darauf, dass Spamhaus die IP inzwischen kennt.
+Das `BAYES_50` schon bei der Zustellung ist der eigentliche Beleg, dass Bayes
+live mitrechnet — vor dem 2026-09-06 tauchte gar keine `BAYES_*`-Regel auf.
+
 **Offen, nicht dringend:**
 - `/var/lib/amavis/virusmails` und `/var/lib/amavis/db` sind **nicht gemountet**
   und verlieren bei jedem Recreate ihren Inhalt (Quarantäne-Kopien, interne

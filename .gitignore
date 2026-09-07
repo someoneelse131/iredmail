@@ -37,7 +37,11 @@ Thumbs.db
 *.log
 
 # Backup files
+# Same trap as the .env patterns above: `*.bak` does NOT match a timestamped
+# name like `config.inc.php.bak-2026-08-25`, because it does not END in .bak.
 *.bak
+*.bak-*
+*.bak.*
 *.backup
 
 # Temporary files
