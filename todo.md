@@ -2,6 +2,71 @@
 
 Open work items. Pull from `progress.md` "Open / pending order" first; this file is for ideas, questions, and lower-priority cleanup.
 
+## Geplant, wartet auf ein Wartungsfenster
+
+### Dovecot: Client-Kennung und Verschiebe-Aktionen mitloggen (eingetragen 2026-10-01)
+
+**Warum:** Ein Lieferanten-Mail von dormiente.com an contact@maisonsoave.ch (Message-ID
+`c1937b3d80c246f1ac380f6bb6d038d5@dormiente.com`) kam am 2026-09-15 09:34 an, war serverseitig
+klar Ham (Score -1.889, `BAYES_00`, `X-Spam-Flag: NO`) und wurde trotzdem **ungelesen** von
+irgendeinem Client aus der INBOX nach Junk verschoben (Keywords `Junk $Junk $Classified`).
+Der Anwender hat es am 2026-09-27 09:55:17 nach `INBOX.Suppliers.Dormient` zurückgezogen,
+das wurde korrekt als Ham gelernt. **Welcher Client verschoben hat, ist nicht mehr
+feststellbar**: Dovecot loggt weder die IMAP-ID des Clients noch Verschiebungen, die Logs
+rotieren nach rund 14 Tagen, und `data/logs` ist vom Borg-Backup ausgenommen. Das
+Thunderbird auf dem Laptop war es nachweislich **nicht** (`moveOnSpam` nie gesetzt).
+Verdacht: die Mail-App am Handy (Logins über Swisscom Mobile 178.197.x). Ein zweites Mail
+mit derselben Signatur liegt in Junk (2026-09-10 19:10, „Mühelose Reinigungswerkzeuge“,
+dort zu Recht).
+
+Rekonstruiert wurde der Weg über die Maildateien in den täglichen Borg-Archiven:
+`doveadm fetch guid` liefert den Maildir-Dateinamen, der lässt sich pro Archiv suchen,
+und die Kopien unter `Maildir/.EXPUNGED/<Ordner>` (lazy_expunge) zeigen, woher ein Mail
+mit welchen Flags weggeschoben wurde.
+
+**Was zu tun ist**, in `config/dovecot/custom.conf`:
+
+```
+imap_id_log = name version os os-version vendor
+# Verschiebungen protokollieren; notify + mail_log an die bestehende Zeile anhaengen:
+protocol imap {
+  mail_plugins = $mail_plugins lazy_expunge notify mail_log
+}
+plugin {
+  mail_log_events = copy expunge mailbox_delete mailbox_rename flag_change
+  mail_log_fields = uid box msgid from subject flags
+}
+```
+
+Danach landen in `dovecot.log` Zeilen wie `ID sent: name=…` beim Login und
+`copy from INBOX: box=Junk, msgid=…` beim Verschieben.
+
+**Vorgehen und Vorsicht:**
+- Kein Rebuild nötig, `custom.conf` ist bind-gemountet und wird von `configure_dovecot`
+  in beiden init.sh-Zweigen kopiert. Es braucht aber einen **Neustart des Containers**
+  (`docker compose restart iredmail-core`, rund 20 s Ausfall). **Erst wenn der Anwender
+  ein Wartungsfenster freigibt**, am 2026-10-01 ausdrücklich zurückgestellt, weil der
+  Mailserver gerade nicht ausfallen darf.
+- Vorher prüfen: `doveadm config -n | grep mail_plugins` im laufenden Container, damit
+  `imap_sieve` in der imap-Zeile erhalten bleibt (steht in `91-iredmail-sieve.conf`,
+  `$mail_plugins` muss es mitnehmen). Danach `dovecot.log` auf Fehler prüfen, insbesondere
+  `invalid event cause` (siehe Spam-Lernen) und einen Test-Move nach Junk und zurück
+  machen: `sa-learn-pipe: trained mode=spam` und `mode=ham` müssen weiter im `maillog`
+  erscheinen.
+- `flag_change` erzeugt viel Text. Falls `dovecot.log` zu stark wächst, auf
+  `copy expunge` beschränken.
+- Optional im selben Zug: `maillog` und `dovecot.log` länger aufbewahren oder ins Borg
+  aufnehmen, damit solche Fragen nicht an der 14-Tage-Rotation scheitern.
+
+**Offen beim Anwender:** welche Mail-App am Handy für contact@ läuft. Falls sie einen
+eigenen Junk-Filter hat, dort ausschalten. Der Server sortiert Spam selbst.
+
+**Schon erledigt am 2026-10-01 (lokal, nicht am Server):** In
+`~/.thunderbird/96kspmx7.default-esr/user.js` ist für contact@ (`mail.server.server5`)
+der adaptive Junk-Filter aus (`spamLevel 0`, `moveOnSpam false`, `purgeSpam false`).
+Erklärt: „Nicht Junk“ heisst, das Mail aus Junk herausziehen, egal mit welchem Client
+(SOGo empfohlen). Der Thunderbird-Button „Kein Junk“ allein trainiert serverseitig nichts.
+
 ## Open questions
 
 ### Q: New server — is `.env` enough to be ready-to-rock?
