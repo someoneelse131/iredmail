@@ -12,6 +12,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 > Roundcube SMTP fix 2026-08-25). `progress.md` is the living record for that
 > period and carries the full analysis; this file resumes from 2026-09-06.
 
+### Security
+- **PHP2Shell (CVE-2026-109618, CVE-2026-109619):** unauthenticated RCE in PHP,
+  reachable via Roundcube on :443. The running image had `php8.1`
+  `8.1.2-1ubuntu2.25`; rebuilt with `--pull --no-cache` to pick up the Ubuntu fix
+  `8.1.2-1ubuntu2.28` (USN-8948). SOGo nightly moved along from
+  `5.12.10.20260906` to `5.12.12.20261023`; Postfix and Dovecot unchanged.
+  Recreated 2026-10-23 11:05, **~30 s outage**. Fresh Borg archive
+  `mail-2026-10-23_110234` (mirrored to HiDrive) taken beforehand. Rollback tag
+  `iredmail-custom:pre-2026-10-23`. Verified: container healthy, `/mail/`,
+  `/SOGo/`, `/iredadmin/` return 200, TLS on 25/587/993, queue empty.
+
 ### Fixed
 - **Spam scoring: Bayes had been inert since installation.** SpamAssassin ignores
   the `BAYES_*` rules until 200 spam *and* 200 ham are learned; the DB stood at
